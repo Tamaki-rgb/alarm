@@ -132,9 +132,11 @@ async function getWeather() {
     try {
         const locRes = await fetch('https://ip-api.com/json/?fields=city,lat,lon');
         const loc = await locRes.json();
-        const city = loc.city || 'Сайрам';
+        const city = loc.city || 'Неизвестно';
+        const lat = loc.lat || 41.45;
+        const lon = loc.lon || 69.2;
 
-        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat || 41.45}&longitude=${loc.lon || 69.2}&current_weather=true`);
+        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);
         const data = await res.json();
 
         const codes = {0: 'ясно', 1: 'преимущественно ясно', 2: 'облачно', 3: 'пасмурно'};
@@ -144,6 +146,7 @@ async function getWeather() {
             condition: codes[data.current_weather.weathercode] || 'облачно'
         };
     } catch(e) {
+        console.error('Weather error:', e);
         return null;
     }
 }
@@ -183,37 +186,59 @@ function getTimerValue() {
     return Math.min(minutes, 60) * 60 + Math.min(seconds, 59);
 }
 
-// Timer Controls
-document.getElementById('timer-start').addEventListener('click', () => {
-    if (isTimerRunning) return;
-    timerSeconds = getTimerValue();
-    if (timerSeconds > 0) {
-        isTimerRunning = true;
-        timerInterval = setInterval(() => {
-            timerSeconds--;
-            updateTimerDisplay();
-            if (timerSeconds <= 0) {
-                clearInterval(timerInterval);
-                isTimerRunning = false;
-                try {
-                    new Audio('sounds/timer.mp3').play();
-                } catch (e) {}
-            }
+// Timer Controls - unified handlers to prevent multiple listeners
+function handleTimerStart() {
+    if (isStopwatchMode) {
+        if (isStopwatchRunning) return;
+        isStopwatchRunning = true;
+        stopwatchInterval = setInterval(() => {
+            stopwatchSeconds++;
+            updateStopwatchDisplay();
         }, 1000);
+    } else {
+        if (isTimerRunning) return;
+        timerSeconds = getTimerValue();
+        if (timerSeconds > 0) {
+            isTimerRunning = true;
+            timerInterval = setInterval(() => {
+                timerSeconds--;
+                updateTimerDisplay();
+                if (timerSeconds <= 0) {
+                    clearInterval(timerInterval);
+                    isTimerRunning = false;
+                }
+            }, 1000);
+        }
     }
-});
+}
 
-document.getElementById('timer-pause').addEventListener('click', () => {
-    clearInterval(timerInterval);
-    isTimerRunning = false;
-});
+function handleTimerPause() {
+    if (isStopwatchMode) {
+        clearInterval(stopwatchInterval);
+        isStopwatchRunning = false;
+    } else {
+        clearInterval(timerInterval);
+        isTimerRunning = false;
+    }
+}
 
-document.getElementById('timer-reset').addEventListener('click', () => {
-    clearInterval(timerInterval);
-    timerSeconds = 0;
-    updateTimerDisplay();
-    isTimerRunning = false;
-});
+function handleTimerReset() {
+    if (isStopwatchMode) {
+        clearInterval(stopwatchInterval);
+        stopwatchSeconds = 0;
+        isStopwatchRunning = false;
+        updateStopwatchDisplay();
+    } else {
+        clearInterval(timerInterval);
+        timerSeconds = 0;
+        updateTimerDisplay();
+        isTimerRunning = false;
+    }
+}
+
+document.getElementById('timer-start').addEventListener('click', handleTimerStart);
+document.getElementById('timer-pause').addEventListener('click', handleTimerPause);
+document.getElementById('timer-reset').addEventListener('click', handleTimerReset);
 
 function updateTimerDisplay() {
     const min = Math.floor(timerSeconds / 60);
@@ -240,33 +265,6 @@ document.getElementById('stopwatch-btn').addEventListener('click', () => {
         document.querySelector('.drum-container').style.display = 'grid';
         timerSeconds = 0;
         updateTimerDisplay();
-    }
-});
-
-document.getElementById('timer-start').addEventListener('click', function() {
-    if (isStopwatchMode) {
-        if (isStopwatchRunning) return;
-        isStopwatchRunning = true;
-        stopwatchInterval = setInterval(() => {
-            stopwatchSeconds++;
-            updateStopwatchDisplay();
-        }, 1000);
-    }
-});
-
-document.getElementById('timer-pause').addEventListener('click', function() {
-    if (isStopwatchMode) {
-        clearInterval(stopwatchInterval);
-        isStopwatchRunning = false;
-    }
-});
-
-document.getElementById('timer-reset').addEventListener('click', function() {
-    if (isStopwatchMode) {
-        clearInterval(stopwatchInterval);
-        stopwatchSeconds = 0;
-        isStopwatchRunning = false;
-        updateStopwatchDisplay();
     }
 });
 
