@@ -1,143 +1,71 @@
 <!DOCTYPE html>
-<html lang="ru" data-theme="day">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bento Alarm Hub v2</title>
+    <title>Ailarm</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <script src="script.js" defer></script>
 </head>
 <body>
-    <div class="wave-bg"></div>
-
-    <div class="app-container">
-        <header class="bento-header">
-            <div class="header-clock">
-                <h1 id="main-clock">00:00:00</h1>
-                <p id="main-date">Загрузка даты...</p>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <svg width="52" height="52" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="50" cy="50" r="42" stroke="currentColor" stroke-width="9"/>
+                    <circle cx="50" cy="50" r="18" fill="currentColor"/>
+                    <path d="M50 22 V35" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>
+                    <path d="M50 65 V78" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>
+                </svg>
             </div>
-            <button id="theme-toggle" class="btn-theme" onclick="toggleTheme()">
-                <span class="theme-icon">🌙</span> Ночной режим
-            </button>
+            <h1>Ailarm</h1>
+            <button id="theme-toggle" class="theme-btn">🌙</button>
         </header>
 
-        <nav class="bento-nav">
-            <button class="nav-tab active" onclick="switchTab('alarms')">⏰ Сигналы</button>
-            <button class="nav-tab" onclick="switchTab('tasks')">📅 Задачи</button>
-            <button class="nav-tab" onclick="switchTab('timer')">⏳ Таймер</button>
-        </nav>
+        <main class="bento-grid">
+            <!-- Карточка Будильники -->
+            <div class="card alarms-card">
+                <h2>Будильники</h2>
+                <div id="alarms-list"></div>
+                <button id="add-alarm-btn" class="add-btn">+ Новый будильник</button>
+            </div>
 
-        <main class="bento-main">
-            <section id="tab-alarms" class="tab-content active">
-                <div class="alarms-grid">
-                    <div id="alarms-list" class="alarms-container"></div>
-                    <div class="card add-alarm-card" onclick="openModal()">
-                        <span class="plus-icon">+</span>
-                        <p>Добавить сигнал</p>
-                    </div>
+            <!-- Карточка Таймер -->
+            <div class="card timer-card">
+                <h2>Таймер</h2>
+                <div class="timer-display" id="timer-display">00:00</div>
+                <div class="drum-container">
+                    <div class="drum" id="minutes-drum"></div>
+                    <div class="drum" id="seconds-drum"></div>
                 </div>
-            </section>
+                <div class="timer-controls">
+                    <button id="timer-start">Старт</button>
+                    <button id="timer-pause">Пауза</button>
+                    <button id="timer-reset">Сброс</button>
+                </div>
+                <button id="stopwatch-btn">Секундомер</button>
+            </div>
 
-            <section id="tab-tasks" class="tab-content">
-                <div class="card task-manager-card">
-                    <h3>Новая задача</h3>
-                    <div class="task-form">
-                        <input type="text" id="task-text" placeholder="Что нужно сделать?">
-                        <input type="date" id="task-date">
-                        <button onclick="addTask()" class="btn-action">Добавить</button>
-                    </div>
-                </div>
-                <div id="tasks-list" class="tasks-container"></div>
-            </section>
-
-            <section id="tab-timer" class="tab-content">
-                <div class="card timer-card">
-                    <div class="timer-interface">
-                        <div class="picker-wheel-wrapper" id="timer-pickers">
-                            <div class="wheel-block">
-                                <span>Мин</span>
-                                <div class="scroll-wheel" id="wheel-minutes"></div>
-                            </div>
-                            <div class="wheel-separator">:</div>
-                            <div class="wheel-block">
-                                <span>Сек</span>
-                                <div class="scroll-wheel" id="wheel-seconds"></div>
-                            </div>
-                        </div>
-                        <div class="timer-display" id="timer-display" style="display: none;">00:00</div>
-                    </div>
-                    <div class="timer-controls">
-                        <button id="btn-timer-start" onclick="toggleTimer()" class="btn-action">Старт</button>
-                        <button id="btn-timer-reset" onclick="resetTimer()" class="btn-secondary" style="display: none;">Сброс</button>
-                    </div>
-                </div>
-            </section>
+            <!-- Карточка Задачи -->
+            <div class="card tasks-card">
+                <h2>Задачи на день</h2>
+                <div id="tasks-list"></div>
+                <button id="add-task-btn" class="add-btn">+ Добавить задачу</button>
+            </div>
         </main>
     </div>
 
-    <div id="alarm-modal" class="modal">
-        <div class="modal-content card">
-            <h2>Новый сигнал</h2>
-            <div class="modal-field">
-                <label>Время</label>
-                <input type="time" id="new-alarm-time" required>
-            </div>
-            
-            <div class="modal-field">
-                <label>Повторять по дням</label>
-                <div class="week-selector">
-                    <button type="button" class="day-dot" data-day="1">Пн</button>
-                    <button type="button" class="day-dot" data-day="2">Вт</button>
-                    <button type="button" class="day-dot" data-day="3">Ср</button>
-                    <button type="button" class="day-dot" data-day="4">Чт</button>
-                    <button type="button" class="day-dot" data-day="5">Пт</button>
-                    <button type="button" class="day-dot" data-day="6">Сб</button>
-                    <button type="button" class="day-dot" data-day="0">Вс</button>
-                </div>
-            </div>
+    <!-- Модальные окна -->
+    <div id="alarm-modal" class="modal"></div>
+    <div id="task-modal" class="modal"></div>
+    <div id="alarm-active" class="alarm-screen hidden"></div>
 
-            <div class="modal-field">
-                <label>Режим работы</label>
-                <select id="new-alarm-type">
-                    <option value="simple">Простой сигнал (пищалка)</option>
-                    <option value="smart">Умное пробуждение (ассистент)</option>
-                </select>
-            </div>
-            <div class="modal-actions">
-                <button onclick="saveAlarm()" class="btn-action">Сохранить</button>
-                <button onclick="closeModal()" class="btn-secondary">Отмена</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="alarm-overlay" class="overlay">
-        <div class="overlay-content">
-            <div class="pulse-ring"></div>
-            <h1 id="overlay-title">Сигнал!</h1>
-            <p id="overlay-subtitle">Пора действовать</p>
-            <button id="btn-alarm-dismiss" class="btn-dismiss">Отключить</button>
-        </div>
-    </div>
-
-    <div id="assistant-overlay" class="overlay">
-        <div class="overlay-content smart-report card">
-            <h2>С добрым утром!</h2>
-            <div class="detox-box">
-                <p class="detox-label">Цифровой детокс</p>
-                <div id="detox-clock">20:00</div>
-                <button onclick="cancelDetox()" class="btn-cancel-detox">Пропустить детокс</button>
-            </div>
-            <div class="mood-box">
-                <p>Как твой заряд?</p>
-                <div class="mood-buttons">
-                    <button onclick="setMood('🔋 Заряжен на код')">⚡ Полон сил</button>
-                    <button onclick="setMood('🍵 Максимально плавно')">☕ На чилле</button>
-                </div>
-                <p id="mood-text" class="mood-status"></p>
-            </div>
-            <button onclick="closeAssistant()" class="btn-action">Завершить ритуал</button>
-        </div>
-    </div>
-
-    <script src="script.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/service-worker.js');
+        }
+    </script>
 </body>
 </html>
