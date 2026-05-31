@@ -1,193 +1,109 @@
-[data-theme="day"] {
-    --bg-main: #fdfbf7;
-    --card-bg: #ffffff;
-    --text-main: #2b2927;
-    --text-dim: #8a8580;
-    --accent: #ff9a76;
-    --accent-hover: #ff8458;
-    --border: rgba(255, 154, 118, 0.15);
-    --shadow: rgba(218, 203, 190, 0.2);
-    --wave-gradient: linear-gradient(135deg, #fff3eb 0%, #ffe3d1 50%, #fdfbf7 100%);
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap');
+
+:root {
+    --bg: #f8f4f0;
+    --card: #fff;
+    --text: #2c2c2c;
+    --accent: #ff6b9d;
+    --accent2: #5e6bff;
+    --shadow: 0 10px 30px rgba(0,0,0,0.08);
 }
 
-[data-theme="night"] {
-    --bg-main: #0a0b10;
-    --card-bg: #12131c;
-    --text-main: #00f0ff;
-    --text-dim: #ff007f;
-    --accent: #ff007f;
-    --accent-hover: #00f0ff;
-    --border: rgba(0, 240, 255, 0.2);
-    --shadow: rgba(0, 0, 0, 0.6);
-    --wave-gradient: linear-gradient(135deg, #07080d 0%, #1a0826 60%, #0a0b10 100%);
+[data-theme="dark"] {
+    --bg: #0f0a1f;
+    --card: #1a1433;
+    --text: #e0d9ff;
+    --accent: #ff4da6;
+    --accent2: #7b8cff;
+    --shadow: 0 10px 30px rgba(0,0,0,0.4);
 }
 
-* {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-    font-family: system-ui, -apple-system, sans-serif;
-    transition: background 0.3s, color 0.3s, border-color 0.3s;
-}
-
+* { margin:0; padding:0; box-sizing:border-box; }
 body {
-    background-color: var(--bg-main);
-    color: var(--text-main);
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
     min-height: 100vh;
+    padding-bottom: 80px;
+}
+
+.container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+
+.header {
     display: flex;
-    justify-content: center;
     align-items: center;
-    overflow-x: hidden;
+    gap: 16px;
+    margin-bottom: 30px;
 }
 
-.wave-bg {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: var(--wave-gradient);
-    z-index: -2;
+.logo { color: var(--accent); }
+h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 2.2rem;
+    font-weight: 600;
 }
 
-.app-container {
-    width: 100%;
-    max-width: 750px;
-    padding: 20px;
+.bento-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 20px;
 }
 
 .card {
-    background: var(--card-bg);
-    border: 1px solid var(--border);
+    background: var(--card);
     border-radius: 24px;
     padding: 24px;
-    box-shadow: 0 10px 30px var(--shadow);
+    box-shadow: var(--shadow);
+    transition: all 0.3s ease;
 }
 
-.bento-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    border-radius: 24px;
-    padding: 24px;
-    margin-bottom: 16px;
-    box-shadow: 0 10px 30px var(--shadow);
+.card h2 {
+    margin-bottom: 20px;
+    font-size: 1.4rem;
+    font-weight: 600;
 }
 
-#main-clock { font-size: 3rem; font-weight: 300; letter-spacing: -1px; }
-#main-date { color: var(--text-dim); font-size: 0.95rem; margin-top: 4px; }
-
-.btn-theme {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-main);
-    padding: 10px 16px;
-    border-radius: 14px;
-    cursor: pointer;
-}
-
-.bento-nav { display: flex; gap: 10px; margin-bottom: 16px; }
-.nav-tab {
-    flex: 1;
-    background: var(--card-bg);
-    border: 1px solid var(--border);
-    color: var(--text-dim);
+.add-btn {
+    width: 100%;
     padding: 14px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: white;
+    border: none;
     border-radius: 16px;
+    font-size: 1.1rem;
     cursor: pointer;
-    font-weight: 600;
+    margin-top: 12px;
 }
-.nav-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
 
-.tab-content { display: none; }
-.tab-content.active { display: block; }
-
-/* БУДИЛЬНИКИ */
-.alarms-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
-.alarm-item { display: flex; flex-direction: column; justify-content: space-between; min-height: 150px; }
-.alarm-time-text { font-size: 2.2rem; font-weight: 600; }
-.alarm-days-display { font-size: 0.8rem; color: var(--accent); margin-top: 4px; font-weight: 500; }
-.alarm-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; }
-.add-alarm-card { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 150px; cursor: pointer; border: 2px dashed var(--accent); background: transparent; box-shadow: none; }
-.plus-icon { font-size: 2.5rem; color: var(--accent); }
-
-/* Выбор дней в модалке */
-.week-selector { display: flex; gap: 6px; margin-top: 8px; justify-content: space-between; }
-.day-dot {
-    flex: 1;
-    background: var(--bg-main);
-    border: 1px solid var(--border);
-    color: var(--text-main);
-    padding: 8px 0;
-    border-radius: 8px;
-    font-size: 0.8rem;
+.theme-btn {
+    margin-left: auto;
+    font-size: 1.6rem;
+    background: none;
+    border: none;
     cursor: pointer;
-    font-weight: 600;
-    text-align: center;
 }
-.day-dot.selected { background: var(--accent); color: white; border-color: var(--accent); }
 
-/* ЗАДАЧИ */
-.task-form { display: grid; grid-template-columns: 2fr 1fr auto; gap: 10px; margin-top: 15px; }
-.task-item { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.btn-delete { background: transparent; border: none; color: #ff4d4d; cursor: pointer; }
-
-/* ТАЙМЕР БАРАБАНЫ */
-.timer-interface { display: flex; justify-content: center; align-items: center; min-height: 160px; margin-bottom: 20px; }
-.picker-wheel-wrapper { display: flex; align-items: center; gap: 15px; }
-.wheel-block { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.wheel-block span { font-size: 0.85rem; color: var(--text-dim); font-weight: 600; }
-.wheel-separator { font-size: 2.5rem; color: var(--accent); padding-top: 20px; }
-
-/* Кастомный скролл-барабан */
-.scroll-wheel {
-    height: 120px;
-    width: 70px;
-    overflow-y: scroll;
-    scroll-snap-type: y mandatory;
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    background: rgba(0,0,0,0.02);
-    scrollbar-width: none; /* Скрываем дефолтный скроллбар */
-}
-.scroll-wheel::-webkit-scrollbar { display: none; }
-
-.wheel-item {
-    height: 40px;
+/* Alarm Screen */
+.alarm-screen {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(135deg, #1a1433, #2d1b4a);
     display: flex;
-    justify-content: center;
+    flex-direction: column;
     align-items: center;
-    font-size: 1.3rem;
-    font-weight: 500;
-    scroll-snap-align: center;
-    cursor: pointer;
+    justify-content: center;
+    z-index: 1000;
+    color: white;
 }
 
-.timer-display { font-size: 5rem; font-weight: 200; text-align: center; color: var(--accent); }
-.timer-controls { display: flex; justify-content: center; gap: 10px; }
+.alarm-screen h1 {
+    font-size: 3.5rem;
+    margin-bottom: 40px;
+}
 
-/* ИНПУТЫ И КНОПКИ */
-input, select { background: var(--bg-main); border: 1px solid var(--border); color: var(--text-main); padding: 12px; border-radius: 14px; outline: none; }
-.btn-action { background: var(--accent); color: white; border: none; padding: 12px 24px; border-radius: 14px; font-weight: 600; cursor: pointer; }
-.btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text-dim); padding: 12px 24px; border-radius: 14px; cursor: pointer; }
-
-/* ОВЕРЛЕИ */
-.modal, .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(8px); display: none; justify-content: center; align-items: center; z-index: 100; }
-.modal-content { width: 100%; max-width: 420px; }
-.modal-field { margin: 15px 0; }
-.modal-field label { display: block; margin-bottom: 6px; font-size: 0.9rem; color: var(--text-dim); font-weight: 600; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
-
-.overlay { background: var(--bg-main); }
-.overlay-content { text-align: center; }
-.btn-dismiss { background: #ff4d4d; color: white; border: none; padding: 20px 40px; font-size: 1.2rem; border-radius: 50px; font-weight: bold; cursor: pointer; box-shadow: 0 10px 25px rgba(255, 77, 77, 0.4); margin-top: 30px; }
-
-.smart-report { max-width: 450px; width: 90%; }
-.detox-box { margin: 24px 0; background: rgba(255, 154, 118, 0.05); padding: 20px; border-radius: 16px; border: 1px solid var(--border); }
-#detox-clock { font-size: 3rem; font-weight: 300; margin: 10px 0; }
-.btn-cancel-detox { background: transparent; border: 1px solid #ff4d4d; color: #ff4d4d; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
-.mood-buttons { display: flex; gap: 10px; margin: 12px 0; }
-.mood-buttons button { flex: 1; background: var(--bg-main); border: 1px solid var(--border); color: var(--text-main); padding: 10px; border-radius: 12px; cursor: pointer; }
-.mood-status { font-size: 0.9rem; color: var(--text-dim); margin-bottom: 20px; min-height: 20px; }
+.alarm-screen button {
+    padding: 18px 60px;
+    font-size: 1.4rem;
+    border-radius: 9999px;
+    margin: 12px;
+}
