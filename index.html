@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Умный Будильник</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="stars"></div>
+    
+    <div class="container">
+        <section id="night-screen" class="screen active">
+            <div class="clock-container">
+                <div id="clock">00:00:00</div>
+                <div id="date">Загрузка даты...</div>
+            </div>
+
+            <div class="card setup-card">
+                <h3><span class="icon">⏰</span> Настройка будильника</h3>
+                <div class="presets">
+                    <button class="btn-preset" onclick="setPreset('07:00')">07:00</button>
+                    <button class="btn-preset" onclick="setPreset('08:00')">08:00</button>
+                    <button class="btn-preset" onclick="setPreset('09:00')">09:00</button>
+                </div>
+                <div class="custom-time">
+                    <input type="time" id="alarm-time">
+                </div>
+                <button id="btn-toggle-alarm" class="btn-primary">Включить будильник</button>
+                <div id="alarm-status" class="status-text">Будильник не установлен</div>
+            </div>
+
+            <div class="card tasks-card">
+                <h3><span class="icon">📝</span> Задачи на сегодня</h3>
+                <div class="task-inputs">
+                    <input type="text" id="task1" placeholder="Главная задача дня">
+                    <input type="text" id="task2" placeholder="Вторая задача">
+                    <input type="text" id="task3" placeholder="Что-то еще или отдых">
+                </div>
+                <button onclick="saveTasks()" class="btn-secondary">Сохранить список</button>
+            </div>
+        </section>
+
+        <section id="alarm-screen" class="screen">
+            <div class="alarm-trigger-content">
+                <div class="pulse-circle"></div>
+                <h2>Доброе утро</h2>
+                <p>Пора просыпаться</p>
+                <button id="btn-dismiss" class="btn-alarm">Отключить</button>
+            </div>
+        </section>
+
+        <section id="dashboard-screen" class="screen">
+            <h1 class="welcome-title">С добрым утром!</h1>
+            
+            <div class="dashboard-grid">
+                <div class="card mood-card">
+                    <h3>Как самочувствие?</h3>
+                    <div class="mood-buttons">
+                        <button class="btn-mood" onclick="selectMood('заряжен')">⚡ Полон сил</button>
+                        <button class="btn-mood" onclick="selectMood('на чилле')">☕ Спокойно</button>
+                        <button class="btn-mood" onclick="selectMood('разряжен')">💤 Нужен кофе</button>
+                    </div>
+                    <p id="mood-reply" class="status-text"></p>
+                </div>
+
+                <div class="card detox-card">
+                    <h3>Время без телефона</h3>
+                    <div id="detox-timer">20:00</div>
+                    <button id="btn-cancel-detox" onclick="cancelDetox()" class="btn-cancel">Пропустить детокс</button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
