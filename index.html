@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bento Alarm Hub</title>
+    <title>Bento Alarm Hub v2</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -21,7 +21,7 @@
         </header>
 
         <nav class="bento-nav">
-            <button class="nav-tab active" onclick="switchTab('alarms')">⏰ Будильники</button>
+            <button class="nav-tab active" onclick="switchTab('alarms')">⏰ Сигналы</button>
             <button class="nav-tab" onclick="switchTab('tasks')">📅 Задачи</button>
             <button class="nav-tab" onclick="switchTab('timer')">⏳ Таймер</button>
         </nav>
@@ -29,8 +29,7 @@
         <main class="bento-main">
             <section id="tab-alarms" class="tab-content active">
                 <div class="alarms-grid">
-                    <div id="alarms-list" class="alarms-container">
-                        </div>
+                    <div id="alarms-list" class="alarms-container"></div>
                     <div class="card add-alarm-card" onclick="openModal()">
                         <span class="plus-icon">+</span>
                         <p>Добавить сигнал</p>
@@ -47,20 +46,28 @@
                         <button onclick="addTask()" class="btn-action">Добавить</button>
                     </div>
                 </div>
-                <div id="tasks-list" class="tasks-container">
-                    </div>
+                <div id="tasks-list" class="tasks-container"></div>
             </section>
 
             <section id="tab-timer" class="tab-content">
                 <div class="card timer-card">
-                    <div class="timer-display" id="timer-display">05:00</div>
-                    <div class="timer-inputs">
-                        <input type="number" id="timer-min" placeholder="Мин" min="0" max="99" value="5">
-                        <input type="number" id="timer-sec" placeholder="Сек" min="0" max="59" value="0">
+                    <div class="timer-interface">
+                        <div class="picker-wheel-wrapper" id="timer-pickers">
+                            <div class="wheel-block">
+                                <span>Мин</span>
+                                <div class="scroll-wheel" id="wheel-minutes"></div>
+                            </div>
+                            <div class="wheel-separator">:</div>
+                            <div class="wheel-block">
+                                <span>Сек</span>
+                                <div class="scroll-wheel" id="wheel-seconds"></div>
+                            </div>
+                        </div>
+                        <div class="timer-display" id="timer-display" style="display: none;">00:00</div>
                     </div>
                     <div class="timer-controls">
                         <button id="btn-timer-start" onclick="toggleTimer()" class="btn-action">Старт</button>
-                        <button onclick="resetTimer()" class="btn-secondary">Сброс</button>
+                        <button id="btn-timer-reset" onclick="resetTimer()" class="btn-secondary" style="display: none;">Сброс</button>
                     </div>
                 </div>
             </section>
@@ -74,6 +81,20 @@
                 <label>Время</label>
                 <input type="time" id="new-alarm-time" required>
             </div>
+            
+            <div class="modal-field">
+                <label>Повторять по дням</label>
+                <div class="week-selector">
+                    <button type="button" class="day-dot" data-day="1">Пн</button>
+                    <button type="button" class="day-dot" data-day="2">Вт</button>
+                    <button type="button" class="day-dot" data-day="3">Ср</button>
+                    <button type="button" class="day-dot" data-day="4">Чт</button>
+                    <button type="button" class="day-dot" data-day="5">Пт</button>
+                    <button type="button" class="day-dot" data-day="6">Сб</button>
+                    <button type="button" class="day-dot" data-day="0">Вс</button>
+                </div>
+            </div>
+
             <div class="modal-field">
                 <label>Режим работы</label>
                 <select id="new-alarm-type">
@@ -92,7 +113,7 @@
         <div class="overlay-content">
             <div class="pulse-ring"></div>
             <h1 id="overlay-title">Сигнал!</h1>
-            <p id="overlay-subtitle">Пора переключаться</p>
+            <p id="overlay-subtitle">Пора действовать</p>
             <button id="btn-alarm-dismiss" class="btn-dismiss">Отключить</button>
         </div>
     </div>
@@ -108,8 +129,8 @@
             <div class="mood-box">
                 <p>Как твой заряд?</p>
                 <div class="mood-buttons">
-                    <button onclick="setMood('🔋 Готов к коду')">⚡ Полон сил</button>
-                    <button onclick="setMood('🍵 Всё плавно')">☕ На чилле</button>
+                    <button onclick="setMood('🔋 Заряжен на код')">⚡ Полон сил</button>
+                    <button onclick="setMood('🍵 Максимально плавно')">☕ На чилле</button>
                 </div>
                 <p id="mood-text" class="mood-status"></p>
             </div>
