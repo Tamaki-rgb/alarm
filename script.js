@@ -12,7 +12,7 @@ let timerTimeLeft = 300; // 5 минут по дефолту
 let isTimerRunning = false;
 
 // Бодрый аудиопоток для пробуждения
-const ALARM_SOUND_URL = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3";
+const ALARM_SOUND_URL = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3";
 
 const greetings = [
     "С добрым утром! Новый прекрасный день настал, время создавать.",
