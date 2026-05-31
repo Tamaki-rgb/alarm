@@ -1,10 +1,9 @@
-/* ОПРЕДЕЛЕНИЕ ТЕМ И ПЕРЕМЕННЫХ */
 [data-theme="day"] {
-    --bg-main: #fdfbf7; /* Топленое молоко / облака */
+    --bg-main: #fdfbf7;
     --card-bg: #ffffff;
     --text-main: #2b2927;
     --text-dim: #8a8580;
-    --accent: #ff9a76; /* Персиковый */
+    --accent: #ff9a76;
     --accent-hover: #ff8458;
     --border: rgba(255, 154, 118, 0.15);
     --shadow: rgba(218, 203, 190, 0.2);
@@ -12,10 +11,10 @@
 }
 
 [data-theme="night"] {
-    --bg-main: #0a0b10; /* Киберпанк ночь */
+    --bg-main: #0a0b10;
     --card-bg: #12131c;
-    --text-main: #00f0ff; /* Неоновый циан */
-    --text-dim: #ff007f; /* Неоновый маджента */
+    --text-main: #00f0ff;
+    --text-dim: #ff007f;
     --accent: #ff007f;
     --accent-hover: #00f0ff;
     --border: rgba(0, 240, 255, 0.2);
@@ -28,7 +27,7 @@
     margin: 0;
     padding: 0;
     font-family: system-ui, -apple-system, sans-serif;
-    transition: background 0.4s ease, color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+    transition: background 0.3s, color 0.3s, border-color 0.3s;
 }
 
 body {
@@ -41,7 +40,6 @@ body {
     overflow-x: hidden;
 }
 
-/* Волнообразный красивый фон */
 .wave-bg {
     position: fixed;
     top: 0;
@@ -58,7 +56,6 @@ body {
     padding: 20px;
 }
 
-/* БЕНТО КАРТОЧКИ */
 .card {
     background: var(--card-bg);
     border: 1px solid var(--border);
@@ -67,7 +64,6 @@ body {
     box-shadow: 0 10px 30px var(--shadow);
 }
 
-/* ХЕДЕР С ЧАСАМИ */
 .bento-header {
     display: flex;
     justify-content: space-between;
@@ -80,17 +76,8 @@ body {
     box-shadow: 0 10px 30px var(--shadow);
 }
 
-#main-clock {
-    font-size: 3rem;
-    font-weight: 300;
-    letter-spacing: -1px;
-}
-
-#main-date {
-    color: var(--text-dim);
-    font-size: 0.95rem;
-    margin-top: 4px;
-}
+#main-clock { font-size: 3rem; font-weight: 300; letter-spacing: -1px; }
+#main-date { color: var(--text-dim); font-size: 0.95rem; margin-top: 4px; }
 
 .btn-theme {
     background: transparent;
@@ -99,27 +86,9 @@ body {
     padding: 10px 16px;
     border-radius: 14px;
     cursor: pointer;
-    font-weight: 500;
 }
 
-.btn-theme:hover {
-    background: rgba(255, 154, 118, 0.08);
-}
-
-/* КИБЕРПАНК СТИЛЬ ДЛЯ КНОПКИ ТЕМЫ В НОЧНОМ РЕЖИМЕ */
-[data-theme="night"] .btn-theme:hover {
-    background: var(--text-main);
-    color: #000;
-    box-shadow: 0 0 15px var(--text-main);
-}
-
-/* НАВИГАЦИЯ */
-.bento-nav {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 16px;
-}
-
+.bento-nav { display: flex; gap: 10px; margin-bottom: 16px; }
 .nav-tab {
     flex: 1;
     background: var(--card-bg);
@@ -129,304 +98,96 @@ body {
     border-radius: 16px;
     cursor: pointer;
     font-weight: 600;
-    font-size: 0.95rem;
-    box-shadow: 0 6px 15px var(--shadow);
 }
+.nav-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
 
-.nav-tab.active {
-    background: var(--accent);
-    color: #ffffff;
-    border-color: var(--accent);
-}
-
-[data-theme="night"] .nav-tab.active {
-    color: #000;
-    box-shadow: 0 0 15px var(--accent);
-}
-
-/* СЕКЦИИ ТАБОВ */
-.tab-content {
-    display: none;
-}
-
-.tab-content.active {
-    display: block;
-}
+.tab-content { display: none; }
+.tab-content.active { display: block; }
 
 /* БУДИЛЬНИКИ */
-.alarms-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 16px;
-}
+.alarms-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; }
+.alarm-item { display: flex; flex-direction: column; justify-content: space-between; min-height: 150px; }
+.alarm-time-text { font-size: 2.2rem; font-weight: 600; }
+.alarm-days-display { font-size: 0.8rem; color: var(--accent); margin-top: 4px; font-weight: 500; }
+.alarm-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; }
+.add-alarm-card { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 150px; cursor: pointer; border: 2px dashed var(--accent); background: transparent; box-shadow: none; }
+.plus-icon { font-size: 2.5rem; color: var(--accent); }
 
-.alarm-item {
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    height: 140px;
-}
-
-.alarm-time-text {
-    font-size: 2rem;
-    font-weight: 600;
-}
-
-.alarm-type-badge {
-    font-size: 0.8rem;
-    color: var(--text-dim);
-    margin-top: 4px;
-}
-
-.alarm-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 15px;
-}
-
-.btn-delete {
-    background: transparent;
-    border: none;
-    color: #ff4d4d;
-    cursor: pointer;
-    font-size: 0.9rem;
-}
-
-/* ПЛЮСИК ДОБАВЛЕНИЯ */
-.add-alarm-card {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    height: 140px;
-    cursor: pointer;
-    border: 2px dashed var(--accent);
-    background: transparent;
-    box-shadow: none;
-}
-
-.add-alarm-card:hover {
-    background: var(--card-bg);
-    transform: translateY(-2px);
-}
-
-.plus-icon {
-    font-size: 2.5rem;
-    color: var(--accent);
-    line-height: 1;
-    margin-bottom: 4px;
-}
-
-/* ИНПУТЫ И КНОПКИ ДЕЙСТВИЙ */
-input, select {
-    background: var(--bg-main);
-    border: 1px solid var(--border);
-    color: var(--text-main);
-    padding: 12px;
-    border-radius: 14px;
-    outline: none;
-    font-size: 1rem;
-    width: 100%;
-}
-
-.btn-action {
-    background: var(--accent);
-    color: white;
-    border: none;
-    padding: 12px 20px;
-    border-radius: 14px;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.btn-action:hover {
-    background: var(--accent-hover);
-}
-
-[data-theme="night"] .btn-action {
-    color: #000;
-}
-[data-theme="night"] .btn-action:hover {
-    box-shadow: 0 0 15px var(--accent);
-}
-
-.btn-secondary {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-    padding: 12px 20px;
-    border-radius: 14px;
-    cursor: pointer;
-    font-weight: 600;
-}
-
-/* МЕНЕДЖЕР ЗАДАЧ */
-.task-form {
-    display: grid;
-    grid-template-columns: 2fr 1fr auto;
-    gap: 10px;
-    margin-top: 15px;
-}
-
-.tasks-container {
-    margin-top: 16px;
-}
-
-.task-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 10px;
-}
-
-.task-info p {
-    font-weight: 500;
-}
-
-.task-info span {
-    font-size: 0.8rem;
-    color: var(--text-dim);
-}
-
-/* ТАЙМЕР */
-.timer-card {
-    text-align: center;
-    padding: 40px;
-}
-
-.timer-display {
-    font-size: 4.5rem;
-    font-weight: 200;
-    margin-bottom: 20px;
-}
-
-.timer-inputs {
-    display: flex;
-    justify-content: center;
-    gap: 10px;
-    max-width: 200px;
-    margin: 0 auto 20px;
-}
-
-.timer-inputs input {
-    text-align: center;
-}
-
-.timer-controls {
-    display: flex;
-    justify-content: center;
-    gap: 10px;
-}
-
-/* МОДАЛКА И ОВЕРЛЕИ */
-.modal, .overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(8px);
-    display: none;
-    justify-content: center;
-    align-items: center;
-    z-index: 100;
-}
-
-.modal-content {
-    width: 100%;
-    max-width: 400px;
-}
-
-.modal-field {
-    margin: 15px 0;
-}
-
-.modal-field label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 0.9rem;
-    color: var(--text-dim);
-}
-
-.modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    margin-top: 20px;
-}
-
-/* ЭКРАН СРАБОТКИ БУДИЛЬНИКА */
-.overlay {
-    background: var(--bg-main);
-}
-
-.overlay-content {
-    text-align: center;
-}
-
-.btn-dismiss {
-    background: #ff4d4d;
-    color: white;
-    border: none;
-    padding: 20px 40px;
-    font-size: 1.2rem;
-    border-radius: 50px;
-    font-weight: bold;
-    cursor: pointer;
-    box-shadow: 0 10px 25px rgba(255, 77, 77, 0.4);
-    margin-top: 30px;
-}
-
-/* УТРЕННИЙ КЛУБ */
-.smart-report {
-    max-width: 450px;
-    width: 90%;
-}
-
-.detox-box {
-    margin: 24px 0;
-    background: rgba(255, 154, 118, 0.05);
-    padding: 20px;
-    border-radius: 16px;
-    border: 1px solid var(--border);
-}
-
-#detox-clock {
-    font-size: 3rem;
-    font-weight: 300;
-    margin: 10px 0;
-}
-
-.btn-cancel-detox {
-    background: transparent;
-    border: 1px solid #ff4d4d;
-    color: #ff4d4d;
-    padding: 6px 12px;
-    border-radius: 8px;
-    cursor: pointer;
-}
-
-.mood-buttons {
-    display: flex;
-    gap: 10px;
-    margin: 12px 0;
-}
-
-.mood-buttons button {
+/* Выбор дней в модалке */
+.week-selector { display: flex; gap: 6px; margin-top: 8px; justify-content: space-between; }
+.day-dot {
     flex: 1;
     background: var(--bg-main);
     border: 1px solid var(--border);
     color: var(--text-main);
-    padding: 10px;
-    border-radius: 12px;
+    padding: 8px 0;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    font-weight: 600;
+    text-align: center;
+}
+.day-dot.selected { background: var(--accent); color: white; border-color: var(--accent); }
+
+/* ЗАДАЧИ */
+.task-form { display: grid; grid-template-columns: 2fr 1fr auto; gap: 10px; margin-top: 15px; }
+.task-item { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.btn-delete { background: transparent; border: none; color: #ff4d4d; cursor: pointer; }
+
+/* ТАЙМЕР БАРАБАНЫ */
+.timer-interface { display: flex; justify-content: center; align-items: center; min-height: 160px; margin-bottom: 20px; }
+.picker-wheel-wrapper { display: flex; align-items: center; gap: 15px; }
+.wheel-block { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.wheel-block span { font-size: 0.85rem; color: var(--text-dim); font-weight: 600; }
+.wheel-separator { font-size: 2.5rem; color: var(--accent); padding-top: 20px; }
+
+/* Кастомный скролл-барабан */
+.scroll-wheel {
+    height: 120px;
+    width: 70px;
+    overflow-y: scroll;
+    scroll-snap-type: y mandatory;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: rgba(0,0,0,0.02);
+    scrollbar-width: none; /* Скрываем дефолтный скроллбар */
+}
+.scroll-wheel::-webkit-scrollbar { display: none; }
+
+.wheel-item {
+    height: 40px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 1.3rem;
+    font-weight: 500;
+    scroll-snap-align: center;
     cursor: pointer;
 }
 
-.mood-status {
-    font-size: 0.9rem;
-    color: var(--text-dim);
-    margin-bottom: 20px;
-    min-height: 20px;
-}
+.timer-display { font-size: 5rem; font-weight: 200; text-align: center; color: var(--accent); }
+.timer-controls { display: flex; justify-content: center; gap: 10px; }
+
+/* ИНПУТЫ И КНОПКИ */
+input, select { background: var(--bg-main); border: 1px solid var(--border); color: var(--text-main); padding: 12px; border-radius: 14px; outline: none; }
+.btn-action { background: var(--accent); color: white; border: none; padding: 12px 24px; border-radius: 14px; font-weight: 600; cursor: pointer; }
+.btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text-dim); padding: 12px 24px; border-radius: 14px; cursor: pointer; }
+
+/* ОВЕРЛЕИ */
+.modal, .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(8px); display: none; justify-content: center; align-items: center; z-index: 100; }
+.modal-content { width: 100%; max-width: 420px; }
+.modal-field { margin: 15px 0; }
+.modal-field label { display: block; margin-bottom: 6px; font-size: 0.9rem; color: var(--text-dim); font-weight: 600; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+.overlay { background: var(--bg-main); }
+.overlay-content { text-align: center; }
+.btn-dismiss { background: #ff4d4d; color: white; border: none; padding: 20px 40px; font-size: 1.2rem; border-radius: 50px; font-weight: bold; cursor: pointer; box-shadow: 0 10px 25px rgba(255, 77, 77, 0.4); margin-top: 30px; }
+
+.smart-report { max-width: 450px; width: 90%; }
+.detox-box { margin: 24px 0; background: rgba(255, 154, 118, 0.05); padding: 20px; border-radius: 16px; border: 1px solid var(--border); }
+#detox-clock { font-size: 3rem; font-weight: 300; margin: 10px 0; }
+.btn-cancel-detox { background: transparent; border: 1px solid #ff4d4d; color: #ff4d4d; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+.mood-buttons { display: flex; gap: 10px; margin: 12px 0; }
+.mood-buttons button { flex: 1; background: var(--bg-main); border: 1px solid var(--border); color: var(--text-main); padding: 10px; border-radius: 12px; cursor: pointer; }
+.mood-status { font-size: 0.9rem; color: var(--text-dim); margin-bottom: 20px; min-height: 20px; }
