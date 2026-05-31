@@ -10,6 +10,7 @@ let isTimerRunning = false;
 let isStopwatchRunning = false;
 let lastCheckDate = new Date().toISOString().split('T')[0];
 let currentVibrationId = null;
+let audioContext = null;
 
 const greetings = [
     "Доброе утро. Надеюсь, ты хорошо выспался, ведь столько всего тебя ждет.",
@@ -19,6 +20,75 @@ const greetings = [
     "Утро доброе. Ты сегодня выглядишь особенно хорошо.",
     "Новый день начинается. Давай сделаем его достойным тебя."
 ];
+
+// Initialize Web Audio API
+function initAudioContext() {
+    if (!audioContext) {
+        try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            audioContext = new AudioContext();
+        } catch(e) {
+            console.error('Web Audio API not supported:', e);
+        }
+    }
+    return audioContext;
+}
+
+// Generate alarm beep sound (1000ms beep at 800Hz)
+function generateAlarmSound() {
+    const ctx = initAudioContext();
+    if (!ctx) return null;
+
+    const now = ctx.currentTime;
+    const duration = 1;
+    
+    // Create oscillator for alarm sound
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.frequency.value = 800; // 800Hz frequency
+    osc.type = 'sine';
+    
+    // Fade in
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.3, now + 0.1);
+    gain.gain.setValueAtTime(0.3, now + duration - 0.1);
+    gain.gain.linearRampToValueAtTime(0, now + duration);
+    
+    osc.start(now);
+    osc.stop(now + duration);
+    
+    return duration * 1000; // return duration in ms
+}
+
+// Generate timer beep sound (short beep at 1000Hz)
+function generateTimerSound() {
+    const ctx = initAudioContext();
+    if (!ctx) return null;
+
+    const now = ctx.currentTime;
+    const duration = 0.3;
+    
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    osc.frequency.value = 1000; // 1000Hz frequency
+    osc.type = 'sine';
+    
+    gain.gain.setValueAtTime(0.5, now);
+    gain.gain.linearRampToValueAtTime(0, now + duration);
+    
+    osc.start(now);
+    osc.stop(now + duration);
+    
+    return duration * 1000;
+}
 
 // Theme
 document.documentElement.setAttribute('data-theme', currentTheme);
@@ -89,6 +159,8 @@ function checkAlarms() {
     });
 }
 
+let alarmSoundInterval = null;
+
 function triggerAlarm(alarm) {
     const screen = document.getElementById('alarm-active');
     screen.classList.remove('hidden');
@@ -99,15 +171,22 @@ function triggerAlarm(alarm) {
         <button id="stop-alarm-btn">Выключить</button>
     `;
 
+    // Try to play file first, fallback to generated sound
     const audio = new Audio('sounds/alarm.mp3');
     audio.loop = true;
-    audio.play().catch(() => console.warn('Audio playback failed'));
+    audio.play().catch(() => {
+        console.warn('Audio file not found, using generated sound');
+        // Generate alarm beep repeatedly
+        alarmSoundInterval = setInterval(() => {
+            generateAlarmSound();
+        }, 1200);
+    });
 
     // Start continuous vibration pattern
     if (navigator.vibrate) {
         currentVibrationId = setInterval(() => {
             navigator.vibrate([400, 150, 400, 150, 400]);
-        }, 2100); // Pattern duration is 2100ms
+        }, 2100);
     }
 
     document.getElementById('stop-alarm-btn').onclick = () => {
@@ -124,10 +203,17 @@ function triggerAlarm(alarm) {
 
 function stopAlarmSequence(audio) {
     audio.pause();
+    
+    if (alarmSoundInterval) {
+        clearInterval(alarmSoundInterval);
+        alarmSoundInterval = null;
+    }
+    
     if (currentVibrationId) {
         clearInterval(currentVibrationId);
         currentVibrationId = null;
     }
+    
     document.getElementById('alarm-active').classList.add('hidden');
 }
 
@@ -152,11 +238,15 @@ function speak(text) {
         console.warn('Speech synthesis not supported');
         return;
     }
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'ru-RU';
-    utterance.rate = 0.96;
-    utterance.pitch = 1.08;
-    speechSynthesis.speak(utterance);
+    try {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'ru-RU';
+        utterance.rate = 0.96;
+        utterance.pitch = 1.08;
+        speechSynthesis.speak(utterance);
+    } catch(e) {
+        console.error('Speech error:', e);
+    }
 }
 
 async function getWeather() {
@@ -281,9 +371,14 @@ function handleTimerReset() {
 
 function playTimerSound() {
     try {
-        new Audio('sounds/timer.mp3').play().catch(() => console.warn('Timer sound failed'));
+        const audio = new Audio('sounds/timer.mp3');
+        audio.play().catch(() => {
+            console.warn('Timer audio file not found, using generated sound');
+            generateTimerSound();
+        });
     } catch (e) {
         console.error('Timer sound error:', e);
+        generateTimerSound();
     }
 }
 
