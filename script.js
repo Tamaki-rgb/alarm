@@ -8,6 +8,8 @@ let timerSeconds = 0;
 let stopwatchSeconds = 0;
 let isTimerRunning = false;
 let isStopwatchRunning = false;
+let lastCheckDate = new Date().toISOString().split('T')[0];
+let currentVibrationId = null;
 
 const greetings = [
     "Доброе утро. Надеюсь, ты хорошо выспался, ведь столько всего тебя ждет.",
@@ -58,8 +60,18 @@ function renderTasks() {
     `).join('') : '<p style="opacity:0.6">Задач на сегодня нет</p>';
 }
 
+// Check for day change and reset triggered flags
+function checkDayChange() {
+    const today = new Date().toISOString().split('T')[0];
+    if (today !== lastCheckDate) {
+        lastCheckDate = today;
+        resetTriggeredFlags();
+    }
+}
+
 // Alarm checking every second
 setInterval(() => {
+    checkDayChange();
     checkAlarms();
 }, 1000);
 
@@ -89,22 +101,34 @@ function triggerAlarm(alarm) {
 
     const audio = new Audio('sounds/alarm.mp3');
     audio.loop = true;
-    audio.play().catch(() => {});
+    audio.play().catch(() => console.warn('Audio playback failed'));
 
-    if (navigator.vibrate) navigator.vibrate([400, 150, 400, 150, 400]);
+    // Start continuous vibration pattern
+    if (navigator.vibrate) {
+        currentVibrationId = setInterval(() => {
+            navigator.vibrate([400, 150, 400, 150, 400]);
+        }, 2100); // Pattern duration is 2100ms
+    }
 
     document.getElementById('stop-alarm-btn').onclick = () => {
-        audio.pause();
-        screen.classList.add('hidden');
+        stopAlarmSequence(audio);
         if (alarm.type === 'smart') setTimeout(startSmartAssistant, 600);
         resetTriggeredFlags();
     };
 
     document.getElementById('snooze-btn').onclick = () => {
-        audio.pause();
-        screen.classList.add('hidden');
+        stopAlarmSequence(audio);
         setTimeout(() => triggerAlarm(alarm), 300000);
     };
+}
+
+function stopAlarmSequence(audio) {
+    audio.pause();
+    if (currentVibrationId) {
+        clearInterval(currentVibrationId);
+        currentVibrationId = null;
+    }
+    document.getElementById('alarm-active').classList.add('hidden');
 }
 
 async function startSmartAssistant() {
@@ -113,14 +137,21 @@ async function startSmartAssistant() {
 
     setTimeout(async () => {
         const weather = await getWeather();
-        speak(weather ? `Сейчас в ${weather.city} ${weather.temp}°, ${weather.condition}.` : "Погода сейчас недоступна.");
+        if (weather) {
+            speak(`Сейчас в ${weather.city} ${weather.temp}°, ${weather.condition}.`);
+        } else {
+            speak("Погода недоступна, но день начинается отлично!");
+        }
         
         setTimeout(readTodayTasks, 2200);
     }, 1600);
 }
 
 function speak(text) {
-    if (!('speechSynthesis' in window)) return;
+    if (!('speechSynthesis' in window)) {
+        console.warn('Speech synthesis not supported');
+        return;
+    }
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'ru-RU';
     utterance.rate = 0.96;
@@ -131,22 +162,33 @@ function speak(text) {
 async function getWeather() {
     try {
         const locRes = await fetch('https://ip-api.com/json/?fields=city,lat,lon');
+        if (!locRes.ok) throw new Error('Location API failed');
+        
         const loc = await locRes.json();
         const city = loc.city || 'Неизвестно';
         const lat = loc.lat || 41.45;
         const lon = loc.lon || 69.2;
 
         const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);
+        if (!res.ok) throw new Error('Weather API failed');
+        
         const data = await res.json();
 
-        const codes = {0: 'ясно', 1: 'преимущественно ясно', 2: 'облачно', 3: 'пасмурно'};
+        const codes = {
+            0: 'ясно', 1: 'преимущественно ясно', 2: 'облачно', 3: 'пасмурно',
+            45: 'туман', 48: 'туман', 51: 'морось', 53: 'морось', 55: 'морось',
+            61: 'дождь', 63: 'дождь', 65: 'дождь', 71: 'снег', 73: 'снег',
+            75: 'снег', 77: 'снег', 80: 'ливень', 81: 'ливень', 82: 'ливень',
+            85: 'снегопад', 86: 'снегопад', 95: 'гроза', 96: 'гроза', 99: 'гроза'
+        };
+        
         return {
             city,
             temp: Math.round(data.current_weather.temperature),
             condition: codes[data.current_weather.weathercode] || 'облачно'
         };
     } catch(e) {
-        console.error('Weather error:', e);
+        console.error('Weather error:', e.message);
         return null;
     }
 }
@@ -206,6 +248,7 @@ function handleTimerStart() {
                 if (timerSeconds <= 0) {
                     clearInterval(timerInterval);
                     isTimerRunning = false;
+                    playTimerSound();
                 }
             }, 1000);
         }
@@ -236,6 +279,14 @@ function handleTimerReset() {
     }
 }
 
+function playTimerSound() {
+    try {
+        new Audio('sounds/timer.mp3').play().catch(() => console.warn('Timer sound failed'));
+    } catch (e) {
+        console.error('Timer sound error:', e);
+    }
+}
+
 document.getElementById('timer-start').addEventListener('click', handleTimerStart);
 document.getElementById('timer-pause').addEventListener('click', handleTimerPause);
 document.getElementById('timer-reset').addEventListener('click', handleTimerReset);
@@ -250,7 +301,12 @@ function updateTimerDisplay() {
 let isStopwatchMode = false;
 document.getElementById('stopwatch-btn').addEventListener('click', () => {
     isStopwatchMode = !isStopwatchMode;
+    
     if (isStopwatchMode) {
+        // Switching to stopwatch mode
+        clearInterval(timerInterval);
+        isTimerRunning = false;
+        
         document.getElementById('stopwatch-btn').textContent = 'Таймер';
         document.getElementById('timer-start').textContent = 'Старт';
         document.getElementById('timer-pause').textContent = 'Пауза';
@@ -259,9 +315,11 @@ document.getElementById('stopwatch-btn').addEventListener('click', () => {
         stopwatchSeconds = 0;
         updateStopwatchDisplay();
     } else {
-        document.getElementById('stopwatch-btn').textContent = 'Секундомер';
+        // Switching back to timer mode
         clearInterval(stopwatchInterval);
         isStopwatchRunning = false;
+        
+        document.getElementById('stopwatch-btn').textContent = 'Секундомер';
         document.querySelector('.drum-container').style.display = 'grid';
         timerSeconds = 0;
         updateTimerDisplay();
@@ -309,6 +367,12 @@ function saveAlarm() {
     const type = document.querySelector('#alarm-modal input[name="type"]:checked').value;
     
     if (time && days.length > 0) {
+        // Validate time format
+        if (!/^\d{2}:\d{2}$/.test(time)) {
+            alert('Некорректный формат времени');
+            return;
+        }
+        
         alarms.push({ time, days, type, triggeredToday: false });
         localStorage.setItem('alarms', JSON.stringify(alarms));
         renderAlarms();
@@ -347,6 +411,8 @@ function saveTask() {
         localStorage.setItem('tasks', JSON.stringify(tasks));
         renderTasks();
         closeModal('task-modal');
+    } else {
+        alert('Задача не может быть пустой');
     }
 }
 
