@@ -9,11 +9,11 @@ let isTimerRunning = false;
 let isStopwatch = false;
 
 const greetings = [
-    "Доброе утро, солнышко. Надеюсь, ты хорошо выспался.",
-    "Мой хороший, новый день уже здесь. Я рада тебя видеть.",
+    "Доброе утро. Надеюсь, ты хорошо выспался, ведь столько всего тебя ждет.",
+    "Герой, новый день уже здесь. Я рада тебя видеть.",
     "Доброе утро. Пусть сегодня всё складывается легко и приятно.",
-    "Просыпайся, любимый. Я здесь и готова помочь тебе с планами.",
-    "Утро доброе. Ты сегодня выглядишь особенно мило.",
+    "Проснись и пой. Я здесь и готова помочь тебе с планами.",
+    "Утро доброе. Ты сегодня выглядишь особенно хорошо.",
     "Новый день начинается. Давай сделаем его достойным тебя."
 ];
 
@@ -126,7 +126,7 @@ async function getWeather() {
     try {
         const locRes = await fetch('https://ip-api.com/json/?fields=city,lat,lon');
         const loc = await locRes.json();
-        const city = loc.city || 'Сарыагаш';
+        const city = loc.city || 'Сайрам';
 
         const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat || 41.45}&longitude=${loc.lon || 69.2}&current_weather=true`);
         const data = await res.json();
