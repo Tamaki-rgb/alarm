@@ -26,7 +26,6 @@ body {
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
-    padding-bottom: 80px;
 }
 
 .container { max-width: 1100px; margin: 0 auto; padding: 20px; }
@@ -36,6 +35,7 @@ body {
     align-items: center;
     gap: 16px;
     margin-bottom: 30px;
+    justify-content: space-between;
 }
 
 .logo { color: var(--accent); }
@@ -45,12 +45,58 @@ h1 {
     font-weight: 600;
 }
 
-.bento-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-    gap: 20px;
+.theme-btn {
+    font-size: 1.6rem;
+    background: none;
+    border: none;
+    cursor: pointer;
 }
 
+/* Tab Navigation */
+.tab-nav {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 30px;
+    border-bottom: 2px solid rgba(0,0,0,0.1);
+}
+
+[data-theme="dark"] .tab-nav {
+    border-bottom-color: rgba(255,255,255,0.1);
+}
+
+.tab-btn {
+    padding: 15px 25px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text);
+    opacity: 0.6;
+    border-bottom: 3px solid transparent;
+    transition: all 0.3s ease;
+}
+
+.tab-btn.active {
+    opacity: 1;
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.tab-btn:hover {
+    opacity: 0.8;
+}
+
+/* Tab Content */
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Card Styles */
 .card {
     background: var(--card);
     border-radius: 24px;
@@ -81,14 +127,6 @@ h1 {
 
 .add-btn:hover {
     transform: translateY(-2px);
-}
-
-.theme-btn {
-    margin-left: auto;
-    font-size: 1.6rem;
-    background: none;
-    border: none;
-    cursor: pointer;
 }
 
 /* Alarm Items */
@@ -210,6 +248,14 @@ h1 {
     justify-content: center;
     scroll-snap-align: center;
     font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.drum-item.selected {
+    background: var(--accent);
+    color: white;
+    font-weight: bold;
+    border-radius: 8px;
 }
 
 .timer-controls {
@@ -364,38 +410,44 @@ h1 {
     }
 }
 
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.3; }
+}
+
 .alarm-screen h1 {
-    font-size: 3.5rem;
+    font-size: 5rem;
     margin-bottom: 40px;
     font-family: 'Space Grotesk', sans-serif;
+    animation: blink 0.5s infinite;
 }
 
 .alarm-screen p {
-    font-size: 1.3rem;
-    margin-bottom: 40px;
-    opacity: 0.9;
+    font-size: 2rem;
+    margin-bottom: 60px;
+    opacity: 0.95;
+    font-weight: bold;
 }
 
 .alarm-screen button {
-    padding: 16px 48px;
-    font-size: 1.2rem;
-    border-radius: 9999px;
-    margin: 12px;
+    padding: 20px 50px;
+    font-size: 1.4rem;
+    border-radius: 12px;
+    margin: 15px;
     border: none;
     cursor: pointer;
-    font-weight: 600;
+    font-weight: 700;
     transition: all 0.2s ease;
 }
 
 .alarm-screen #stop-alarm-btn {
-    background: #ff4da6;
+    background: #f44336;
     color: white;
 }
 
 .alarm-screen #snooze-btn {
-    background: rgba(255, 255, 255, 0.2);
+    background: #ff9500;
     color: white;
-    border: 2px solid white;
 }
 
 .alarm-screen button:hover {
@@ -404,4 +456,16 @@ h1 {
 
 .hidden {
     display: none !important;
+}
+
+/* Empty state */
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    opacity: 0.6;
+}
+
+.empty-state p {
+    font-size: 1.1rem;
+    margin-bottom: 20px;
 }
