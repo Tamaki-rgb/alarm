@@ -1,4 +1,4 @@
-// script.js - ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ
+// script.js - ВЕРСИЯ С РАЗДЕЛЬНЫМИ ЭКРАНАМИ
 let alarms = JSON.parse(localStorage.getItem('alarms')) || [];
 let tasks = JSON.parse(localStorage.getItem('tasks')) || [];
 let currentTheme = localStorage.getItem('theme') || 'light';
@@ -14,6 +14,7 @@ let audioContext = null;
 let alarmAudio = null;
 let isAlarmActive = false;
 let currentAlarmData = null;
+let isAssistantSpeaking = false;
 
 const greetings = [
     "Доброе утро. Надеюсь, ты хорошо выспался, ведь столько всего тебя ждет.",
@@ -64,37 +65,47 @@ function generateTimerSound() {
     osc.stop(now + duration);
 }
 
-function speakText(text) {
-    if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'ru-RU';
-        utterance.rate = 0.9;
-        utterance.pitch = 1;
-        
-        const voices = window.speechSynthesis.getVoices();
-        const russianVoice = voices.find(voice => voice.lang.startsWith('ru'));
-        if (russianVoice) {
-            utterance.voice = russianVoice;
-        }
-        
-        window.speechSynthesis.speak(utterance);
-        console.log('🔊 Озвучено:', text);
+function speakText(text, callback = null) {
+    if (!('speechSynthesis' in window)) {
+        if (callback) callback();
+        return;
     }
+    
+    window.speechSynthesis.cancel();
+    
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'ru-RU';
+    utterance.rate = 0.9;
+    utterance.pitch = 1;
+    
+    const voices = window.speechSynthesis.getVoices();
+    const russianVoice = voices.find(voice => voice.lang.startsWith('ru'));
+    if (russianVoice) {
+        utterance.voice = russianVoice;
+    }
+    
+    if (callback) {
+        utterance.onend = callback;
+    }
+    
+    isAssistantSpeaking = true;
+    window.speechSynthesis.speak(utterance);
+    console.log('🔊 Озвучено:', text);
 }
 
 // ==================== ТЕМА ====================
 
 document.documentElement.setAttribute('data-theme', currentTheme);
-document.getElementById('theme-toggle').textContent = currentTheme === 'dark' ? '☀️' : '🌙';
-
-document.getElementById('theme-toggle').addEventListener('click', () => {
-    currentTheme = currentTheme === 'light' ? 'dark' : 'light';
-    document.documentElement.setAttribute('data-theme', currentTheme);
-    localStorage.setItem('theme', currentTheme);
-    document.getElementById('theme-toggle').textContent = currentTheme === 'dark' ? '☀️' : '🌙';
-});
+const themeToggle = document.getElementById('theme-toggle');
+if (themeToggle) {
+    themeToggle.textContent = currentTheme === 'dark' ? '☀️' : '🌙';
+    themeToggle.addEventListener('click', () => {
+        currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', currentTheme);
+        localStorage.setItem('theme', currentTheme);
+        themeToggle.textContent = currentTheme === 'dark' ? '☀️' : '🌙';
+    });
+}
 
 // ==================== РЕНДЕРИНГ ====================
 
@@ -188,22 +199,23 @@ function triggerAlarm(alarm) {
         screen.requestFullscreen().catch(() => {});
     }
     
+    // ЭКРАН 1: Будильник звенит
     screen.innerHTML = `
         <div style="text-align: center; width: 100%;">
             <h1 style="font-size: 6rem; margin: 0; animation: alarm-blink 0.5s infinite;">${alarm.time}</h1>
             <p style="font-size: 2.5rem; margin: 30px 0; font-weight: bold;">⏰ ПОРА ПРОСЫПАТЬСЯ!</p>
             <div style="display: flex; gap: 20px; margin-top: 50px; flex-wrap: wrap; justify-content: center;">
-                <button id="snooze-btn" style="padding: 25px 60px; font-size: 1.6rem; background: #ff9500; color: white; border: none; border-radius: 15px; cursor: pointer; font-weight: bold; -webkit-tap-highlight-color: transparent; user-select: none; touch-action: manipulation;">
+                <button id="snooze-btn" style="padding: 25px 40px; font-size: 1.4rem; background: #ff9500; color: white; border: none; border-radius: 15px; cursor: pointer; font-weight: bold; touch-action: manipulation;">
                     Отложить (5 мин)
                 </button>
-                <button id="stop-alarm-btn" style="padding: 25px 60px; font-size: 1.6rem; background: #f44336; color: white; border: none; border-radius: 15px; cursor: pointer; font-weight: bold; -webkit-tap-highlight-color: transparent; user-select: none; touch-action: manipulation;">
+                <button id="stop-alarm-btn" style="padding: 25px 40px; font-size: 1.4rem; background: #f44336; color: white; border: none; border-radius: 15px; cursor: pointer; font-weight: bold; touch-action: manipulation;">
                     ВЫКЛЮЧИТЬ
                 </button>
             </div>
         </div>
     `;
 
-    // Добавляем анимацию
+    // Анимация
     if (!document.getElementById('alarm-blink-style')) {
         const style = document.createElement('style');
         style.id = 'alarm-blink-style';
@@ -212,62 +224,41 @@ function triggerAlarm(alarm) {
                 0%, 50% { opacity: 1; }
                 51%, 100% { opacity: 0.3; }
             }
-            #stop-alarm-btn:active, #snooze-btn:active {
-                transform: scale(0.95);
-                opacity: 0.8;
-            }
         `;
         document.head.appendChild(style);
     }
 
-    // Назначаем обработчики кнопок
+    // Кнопки - используем onclick прямо в HTML для надёжности
     setTimeout(() => {
         const stopBtn = document.getElementById('stop-alarm-btn');
         const snoozeBtn = document.getElementById('snooze-btn');
         
         if (stopBtn) {
-            stopBtn.onclick = function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('🛑 ВЫКЛЮЧИТЬ - КЛИК');
-                stopAlarmSequence(false);
-            };
-            stopBtn.ontouchend = function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('🛑 ВЫКЛЮЧИТЬ - ТАЧ');
-                stopAlarmSequence(false);
+            stopBtn.onclick = function() {
+                console.log('🛑 Кнопка ВЫКЛЮЧИТЬ нажата');
+                stopAlarmAndShowWakeUpScreen();
             };
         }
         
         if (snoozeBtn) {
-            snoozeBtn.onclick = function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('⏸️ ОТЛОЖИТЬ - КЛИК');
-                stopAlarmSequence(true);
-            };
-            snoozeBtn.ontouchend = function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('⏸️ ОТЛОЖИТЬ - ТАЧ');
-                stopAlarmSequence(true);
+            snoozeBtn.onclick = function() {
+                console.log('⏸️ Кнопка ОТЛОЖИТЬ нажата');
+                snoozeAlarm();
             };
         }
-    }, 100);
+    }, 200);
 
-    // Запускаем звук с задержкой
+    // Звук
     setTimeout(() => {
         playAlarmSound();
     }, 300);
 
-    // Запускаем вибрацию
+    // Вибрация
     startVibration();
 }
 
 function playAlarmSound() {
     try {
-        // Останавливаем предыдущий звук если есть
         if (alarmAudio) {
             alarmAudio.pause();
             alarmAudio.currentTime = 0;
@@ -305,10 +296,8 @@ function startVibration() {
     console.log('📳 Вибрация запущена');
 }
 
-function stopAlarmSequence(isSnooze = false) {
-    console.log('🔇 ОСТАНОВКА БУДИЛЬНИКА. Отложить:', isSnooze);
-    
-    // 1. ПОЛНАЯ ОСТАНОВКА ЗВУКА
+function stopAllAudioAndVibration() {
+    // Останавливаем звук
     if (alarmAudio) {
         alarmAudio.loop = false;
         alarmAudio.pause();
@@ -319,17 +308,16 @@ function stopAlarmSequence(isSnooze = false) {
         console.log('🔇 Звук остановлен');
     }
     
-    // 2. Остановка AudioContext
+    // Останавливаем AudioContext
     if (audioContext && audioContext.state !== 'closed') {
         audioContext.close().then(() => {
             audioContext = null;
-            console.log('🔇 AudioContext закрыт');
         }).catch(() => {
             audioContext = null;
         });
     }
     
-    // 3. ОСТАНОВКА ВИБРАЦИИ
+    // Останавливаем вибрацию
     if (currentVibrationId) {
         clearInterval(currentVibrationId);
         currentVibrationId = null;
@@ -338,60 +326,117 @@ function stopAlarmSequence(isSnooze = false) {
         navigator.vibrate(0);
         console.log('📳 Вибрация остановлена');
     }
+}
+
+function snoozeAlarm() {
+    console.log('⏱️ Будильник отложен на 5 минут');
     
-    // 4. Выход из fullscreen
-    if (document.fullscreenElement || document.webkitFullscreenElement) {
-        try {
-            if (document.exitFullscreen) {
-                document.exitFullscreen();
-            } else if (document.webkitExitFullscreen) {
-                document.webkitExitFullscreen();
-            }
-        } catch(e) {}
+    stopAllAudioAndVibration();
+    
+    if (currentAlarmData) {
+        currentAlarmData.triggeredToday = false;
+        localStorage.setItem('alarms', JSON.stringify(alarms));
     }
     
-    // 5. Скрываем экран будильника
+    const snoozeAlarmData = currentAlarmData;
+    
+    // Выходим из fullscreen
+    if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+    }
+    
+    // Скрываем экран
     const screen = document.getElementById('alarm-active');
     if (screen) {
         screen.classList.add('hidden');
         screen.innerHTML = '';
     }
     
-    // 6. Обрабатываем логику
-    if (isSnooze && currentAlarmData) {
-        // Отложить
-        console.log('⏱️ Будильник отложен на 5 минут');
-        currentAlarmData.triggeredToday = false;
-        localStorage.setItem('alarms', JSON.stringify(alarms));
-        
-        const snoozeAlarm = currentAlarmData;
-        isAlarmActive = false;
-        currentAlarmData = null;
-        
-        setTimeout(() => {
-            if (!isAlarmActive && snoozeAlarm) {
-                console.log('⏰ Повторный запуск после отсрочки');
-                triggerAlarm(snoozeAlarm);
-            }
-        }, 300000); // 5 минут
-        
-    } else {
-        // Выключить полностью
-        console.log('✅ Будильник полностью выключен');
-        
-        const wasSmartAlarm = currentAlarmData && currentAlarmData.type === 'smart';
-        
-        resetTriggeredFlags();
-        isAlarmActive = false;
-        currentAlarmData = null;
-        
-        // Запускаем ассистента только для умного будильника
-        if (wasSmartAlarm) {
-            console.log('🤖 Запуск умного ассистента');
-            setTimeout(() => {
-                startSmartAssistant();
-            }, 1000);
+    isAlarmActive = false;
+    currentAlarmData = null;
+    
+    // Повторный запуск через 5 минут
+    setTimeout(() => {
+        if (!isAlarmActive && snoozeAlarmData) {
+            console.log('⏰ Повторный запуск после отсрочки');
+            triggerAlarm(snoozeAlarmData);
         }
+    }, 300000);
+}
+
+function stopAlarmAndShowWakeUpScreen() {
+    console.log('🛑 Будильник выключен, показываем экран пробуждения');
+    
+    stopAllAudioAndVibration();
+    
+    const screen = document.getElementById('alarm-active');
+    if (!screen) return;
+    
+    const wasSmartAlarm = currentAlarmData && currentAlarmData.type === 'smart';
+    
+    // ЭКРАН 2: Приветствие и кнопка "Окончательно пробудился"
+    screen.innerHTML = `
+        <div style="text-align: center; width: 100%;">
+            <div style="font-size: 5rem; margin-bottom: 20px;">🌅</div>
+            <h2 style="font-size: 2rem; margin: 20px 0;">Доброе утро!</h2>
+            <p style="font-size: 1.3rem; opacity: 0.8; margin: 20px 0;">
+                ${wasSmartAlarm ? 'Я подготовила для тебя информацию о погоде и задачах' : 'Хорошего дня!'}
+            </p>
+            <button id="wake-up-btn" style="
+                padding: 30px 60px; 
+                font-size: 1.8rem; 
+                background: linear-gradient(135deg, #4CAF50, #45a049); 
+                color: white; 
+                border: none; 
+                border-radius: 20px; 
+                cursor: pointer; 
+                font-weight: bold; 
+                margin-top: 40px;
+                touch-action: manipulation;
+                box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+            ">
+                ☀️ Окончательно пробудился!
+            </button>
+        </div>
+    `;
+    
+    // Кнопка пробуждения
+    setTimeout(() => {
+        const wakeUpBtn = document.getElementById('wake-up-btn');
+        if (wakeUpBtn) {
+            wakeUpBtn.onclick = function() {
+                console.log('☀️ Кнопка "Окончательно пробудился" нажата');
+                finalWakeUp(wasSmartAlarm);
+            };
+        }
+    }, 200);
+}
+
+function finalWakeUp(wasSmartAlarm) {
+    console.log('☀️ Финальное пробуждение');
+    
+    // Выходим из fullscreen
+    if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+    }
+    
+    const screen = document.getElementById('alarm-active');
+    if (screen) {
+        screen.classList.add('hidden');
+        screen.innerHTML = '';
+    }
+    
+    // Сбрасываем всё
+    resetTriggeredFlags();
+    isAlarmActive = false;
+    currentAlarmData = null;
+    
+    // Запускаем ассистента если умный будильник
+    if (wasSmartAlarm) {
+        console.log('🤖 Запуск умного ассистента');
+        setTimeout(() => {
+            startSmartAssistant();
+        }, 500);
     }
 }
 
@@ -400,25 +445,77 @@ function stopAlarmSequence(isSnooze = false) {
 async function startSmartAssistant() {
     console.log('🎤 Ассистент запущен');
     
-    const greeting = greetings[Math.floor(Math.random() * greetings.length)];
-    speakText(greeting);
-    
-    // Погода через 2 секунды
-    setTimeout(async () => {
-        const weather = await getWeather();
-        if (weather) {
-            const weatherText = `В городе ${weather.city} сейчас ${weather.temp} градусов, ${weather.condition}`;
-            speakText(weatherText);
-        } else {
-            speakText('Не удалось получить прогноз погоды');
-        }
+    // Показываем экран ассистента
+    const screen = document.getElementById('alarm-active');
+    if (screen) {
+        screen.classList.remove('hidden');
+        screen.innerHTML = `
+            <div style="text-align: center; width: 100%;">
+                <div style="font-size: 4rem; margin-bottom: 20px;">🤖</div>
+                <h2 style="font-size: 1.8rem; margin: 20px 0;">Ассистент говорит...</h2>
+                <div id="assistant-text" style="font-size: 1.2rem; margin: 20px 0; opacity: 0.8; min-height: 60px;"></div>
+                <button id="close-assistant-btn" style="
+                    padding: 20px 40px; 
+                    font-size: 1.2rem; 
+                    background: #666; 
+                    color: white; 
+                    border: none; 
+                    border-radius: 15px; 
+                    cursor: pointer; 
+                    margin-top: 30px;
+                    touch-action: manipulation;
+                ">
+                    Закрыть
+                </button>
+            </div>
+        `;
         
-        // Задачи через 3 секунды
         setTimeout(() => {
-            readTodayTasks();
-        }, 3000);
+            const closeBtn = document.getElementById('close-assistant-btn');
+            if (closeBtn) {
+                closeBtn.onclick = function() {
+                    screen.classList.add('hidden');
+                    screen.innerHTML = '';
+                    if (window.speechSynthesis) {
+                        window.speechSynthesis.cancel();
+                    }
+                    isAssistantSpeaking = false;
+                };
+            }
+        }, 200);
+    }
+    
+    // Приветствие
+    const greeting = greetings[Math.floor(Math.random() * greetings.length)];
+    updateAssistantText(greeting);
+    speakText(greeting, async () => {
+        // После приветствия - погода
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const weather = await getWeather();
         
-    }, 2500);
+        if (weather) {
+            const weatherText = `Сейчас в городе ${weather.city} ${weather.temp} градусов, ${weather.condition}`;
+            updateAssistantText(weatherText);
+            speakText(weatherText, async () => {
+                // После погоды - задачи
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                readTodayTasks();
+            });
+        } else {
+            const noWeatherText = 'Не удалось получить прогноз погоды';
+            updateAssistantText(noWeatherText);
+            speakText(noWeatherText, () => {
+                setTimeout(() => readTodayTasks(), 1000);
+            });
+        }
+    });
+}
+
+function updateAssistantText(text) {
+    const textEl = document.getElementById('assistant-text');
+    if (textEl) {
+        textEl.textContent = text;
+    }
 }
 
 async function getWeather() {
@@ -451,12 +548,15 @@ function readTodayTasks() {
     const today = new Date().toISOString().split('T')[0];
     const todayTasks = tasks.filter(t => t.date === today && !t.done);
     
+    let tasksText;
     if (todayTasks.length === 0) {
-        speakText('На сегодня задач нет');
+        tasksText = 'На сегодня задач нет';
     } else {
-        const tasksList = todayTasks.map(t => t.text).join(', ');
-        speakText(`На сегодня запланировано: ${tasksList}`);
+        tasksText = `На сегодня запланировано: ${todayTasks.map(t => t.text).join(', ')}`;
     }
+    
+    updateAssistantText(tasksText);
+    speakText(tasksText);
 }
 
 // ==================== БАРАБАН ТАЙМЕРА ====================
@@ -467,7 +567,6 @@ function initDrums() {
     
     if (!minDrum || !secDrum) return;
     
-    // Создаем много элементов для бесконечного скролла
     const createItems = () => {
         let html = '';
         for (let i = 0; i < 300; i++) {
@@ -479,7 +578,6 @@ function initDrums() {
     minDrum.innerHTML = createItems();
     secDrum.innerHTML = createItems();
     
-    // Стили для барабана
     if (!document.getElementById('drum-style')) {
         const style = document.createElement('style');
         style.id = 'drum-style';
@@ -500,54 +598,28 @@ function initDrums() {
                 font-weight: bold;
                 border-radius: 8px;
             }
-            #minutes-drum, #seconds-drum {
-                scroll-behavior: smooth;
-                -webkit-overflow-scrolling: touch;
-                scroll-snap-type: y mandatory;
-            }
-            .drum-item {
-                scroll-snap-align: center;
-            }
         `;
         document.head.appendChild(style);
     }
     
-    // Начальная позиция - середина
-    const middlePos = 120 * 40; // 120 элементов по 40px
+    const middlePos = 120 * 40;
     minDrum.scrollTop = middlePos;
     secDrum.scrollTop = middlePos;
     
     updateDrumHighlight();
     
-    // Обработчик бесконечного скролла
     const handleScroll = (drum) => {
         const maxScroll = drum.scrollHeight - drum.clientHeight;
-        
         if (drum.scrollTop >= maxScroll - 40) {
             drum.scrollTop = middlePos;
         } else if (drum.scrollTop <= 40) {
             drum.scrollTop = maxScroll - middlePos;
         }
-        
         updateDrumHighlight();
     };
     
     minDrum.addEventListener('scroll', () => handleScroll(minDrum));
     secDrum.addEventListener('scroll', () => handleScroll(secDrum));
-    
-    // Клик по элементу
-    const handleClick = (e, drum) => {
-        const item = e.target.closest('.drum-item');
-        if (item) {
-            const drumRect = drum.getBoundingClientRect();
-            const itemRect = item.getBoundingClientRect();
-            const offset = itemRect.top - drumRect.top + drum.scrollTop - (drumRect.height / 2) + (itemRect.height / 2);
-            drum.scrollTo({ top: offset, behavior: 'smooth' });
-        }
-    };
-    
-    minDrum.addEventListener('click', (e) => handleClick(e, minDrum));
-    secDrum.addEventListener('click', (e) => handleClick(e, secDrum));
 }
 
 function updateDrumHighlight() {
@@ -799,7 +871,6 @@ function closeModal(id) {
 function initApp() {
     console.log('✨ Ailarm запущен!');
     
-    // Назначаем обработчики
     const addAlarmBtn = document.getElementById('add-alarm-btn');
     const addTaskBtn = document.getElementById('add-task-btn');
     const stopwatchBtn = document.getElementById('stopwatch-btn');
@@ -816,7 +887,6 @@ function initApp() {
     if (timerPause) timerPause.addEventListener('click', handleTimerPause);
     if (timerReset) timerReset.addEventListener('click', handleTimerReset);
     
-    // Закрытие модалок по клику вне
     if (alarmModal) {
         alarmModal.addEventListener('click', (e) => {
             if (e.target.id === 'alarm-modal') closeModal('alarm-modal');
@@ -828,7 +898,6 @@ function initApp() {
         });
     }
     
-    // Предзагрузка голосов
     if ('speechSynthesis' in window) {
         window.speechSynthesis.getVoices();
         window.speechSynthesis.onvoiceschanged = () => {
@@ -836,36 +905,24 @@ function initApp() {
         };
     }
     
-    // Рендерим всё
     renderAlarms();
     renderTasks();
     initDrums();
 }
 
-// Запуск при загрузке
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initApp);
 } else {
     initApp();
 }
 
-// Обработчик для кнопки "Назад" в браузере (выход из fullscreen)
-document.addEventListener('fullscreenchange', () => {
-    if (!document.fullscreenElement) {
-        const screen = document.getElementById('alarm-active');
-        if (screen && !screen.classList.contains('hidden')) {
-            console.log('⚠️ Fullscreen закрыт вручную');
-        }
-    }
-});
-
 // Предотвращаем случайное закрытие во время будильника
 window.addEventListener('beforeunload', (e) => {
     if (isAlarmActive) {
         e.preventDefault();
-        e.returnValue = 'Будильник активен! Вы уверены что хотите уйти?';
+        e.returnValue = 'Будильник активен!';
         return e.returnValue;
     }
 });
 
-console.log('✅ script.js полностью загружен и готов к работе');
+console.log('✅ script.js загружен - версия с раздельными экранами');
