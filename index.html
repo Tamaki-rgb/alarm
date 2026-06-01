@@ -12,29 +12,40 @@
 <body>
     <div class="container">
         <header class="header">
-            <div class="logo">
-                <svg width="52" height="52" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <circle cx="50" cy="50" r="42" stroke="currentColor" stroke-width="9"/>
-                    <circle cx="50" cy="50" r="18" fill="currentColor"/>
-                    <path d="M50 22 V35" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>
-                    <path d="M50 65 V78" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>
-                </svg>
+            <div style="display: flex; align-items: center; gap: 16px;">
+                <div class="logo">
+                    <svg width="52" height="52" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="50" cy="50" r="42" stroke="currentColor" stroke-width="9"/>
+                        <circle cx="50" cy="50" r="18" fill="currentColor"/>
+                        <path d="M50 22 V35" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>
+                        <path d="M50 65 V78" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <h1>Ailarm</h1>
             </div>
-            <h1>Ailarm</h1>
             <button id="theme-toggle" class="theme-btn">🌙</button>
         </header>
 
-        <main class="bento-grid">
-            <!-- Карточка Будильники -->
-            <div class="card alarms-card">
-                <h2>Будильники</h2>
-                <div id="alarms-list"></div>
-                <button id="add-alarm-btn" class="add-btn">+ Новый будильник</button>
-            </div>
+        <!-- Tab Navigation -->
+        <div class="tab-nav">
+            <button class="tab-btn active" data-tab="alarms">⏰ Будильники</button>
+            <button class="tab-btn" data-tab="timer">⏱️ Таймер</button>
+            <button class="tab-btn" data-tab="tasks">📝 Задачи</button>
+        </div>
 
-            <!-- Карточка Таймер -->
-            <div class="card timer-card">
-                <h2>Таймер</h2>
+        <!-- Alarms Tab -->
+        <div id="alarms" class="tab-content active">
+            <div class="card">
+                <h2>🔔 Мои будильники</h2>
+                <div id="alarms-list"></div>
+                <button id="add-alarm-btn" class="add-btn">+ Добавить будильник</button>
+            </div>
+        </div>
+
+        <!-- Timer Tab -->
+        <div id="timer" class="tab-content">
+            <div class="card">
+                <h2>⏱️ Таймер / Секундомер</h2>
                 <div class="timer-display" id="timer-display">00:00</div>
                 <div class="drum-container">
                     <div class="drum" id="minutes-drum"></div>
@@ -45,27 +56,57 @@
                     <button id="timer-pause">Пауза</button>
                     <button id="timer-reset">Сброс</button>
                 </div>
-                <button id="stopwatch-btn">Секундомер</button>
+                <button id="stopwatch-btn" style="width: 100%; padding: 14px; background: linear-gradient(135deg, #4CAF50, #45a049); color: white; border: none; border-radius: 16px; font-size: 1rem; cursor: pointer; margin-top: 12px; font-weight: 600;">Секундомер</button>
             </div>
+        </div>
 
-            <!-- Карточка Задачи -->
-            <div class="card tasks-card">
-                <h2>Задачи на день</h2>
+        <!-- Tasks Tab -->
+        <div id="tasks" class="tab-content">
+            <div class="card">
+                <h2>📝 Задачи на сегодня</h2>
                 <div id="tasks-list"></div>
                 <button id="add-task-btn" class="add-btn">+ Добавить задачу</button>
             </div>
-        </main>
+        </div>
     </div>
 
     <!-- Модальные окна -->
-    <div id="alarm-modal" class="modal"></div>
-    <div id="task-modal" class="modal"></div>
+    <div id="alarm-modal" class="modal hidden"></div>
+    <div id="task-modal" class="modal hidden"></div>
     <div id="alarm-active" class="alarm-screen hidden"></div>
 
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/service-worker.js');
+            navigator.serviceWorker.register('service-worker.js').catch(err => console.warn('Service Worker:', err));
         }
+
+        // Tab switching
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tabName = btn.dataset.tab;
+                
+                // Hide all tabs
+                document.querySelectorAll('.tab-content').forEach(tab => {
+                    tab.classList.remove('active');
+                });
+                
+                // Remove active from buttons
+                document.querySelectorAll('.tab-btn').forEach(b => {
+                    b.classList.remove('active');
+                });
+                
+                // Show selected tab
+                document.getElementById(tabName).classList.add('active');
+                btn.classList.add('active');
+                
+                // Re-init drums if timer tab is opened
+                if (tabName === 'timer') {
+                    setTimeout(() => {
+                        updateDrumHighlight();
+                    }, 100);
+                }
+            });
+        });
     </script>
 </body>
 </html>
