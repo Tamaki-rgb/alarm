@@ -387,75 +387,75 @@ h1 {
     transform: translateY(-2px);
 }
 
-/* Alarm Screen */
+/* 🔧 ГЛАВНОЕ ИСПРАВЛЕНИЕ: Alarm Screen */
 .alarm-screen {
     position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
     background: linear-gradient(135deg, #1a1433, #2d1b4a);
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    z-index: 1001;
+    z-index: 9999;
     color: white;
-    animation: alarmSlideIn 0.3s ease;
 }
 
-@keyframes alarmSlideIn {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
-    }
-}
-
-@keyframes blink {
-    0%, 50% { opacity: 1; }
-    51%, 100% { opacity: 0.3; }
-}
-
-.alarm-screen h1 {
-    font-size: 5rem;
-    margin-bottom: 40px;
-    font-family: 'Space Grotesk', sans-serif;
-    animation: blink 0.5s infinite;
-}
-
-.alarm-screen p {
-    font-size: 2rem;
-    margin-bottom: 60px;
-    opacity: 0.95;
-    font-weight: bold;
-}
-
+/* ВАЖНО: Стили ТОЛЬКО для кнопок внутри alarm-screen */
 .alarm-screen button {
-    padding: 20px 50px;
+    padding: 25px 50px;
     font-size: 1.4rem;
-    border-radius: 12px;
-    margin: 15px;
     border: none;
+    border-radius: 15px;
     cursor: pointer;
     font-weight: 700;
     transition: all 0.2s ease;
+    pointer-events: auto !important;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    position: relative;
+    z-index: 10000;
 }
 
 .alarm-screen #stop-alarm-btn {
     background: #f44336;
     color: white;
+    box-shadow: 0 4px 15px rgba(244, 67, 54, 0.4);
 }
 
 .alarm-screen #snooze-btn {
     background: #ff9500;
     color: white;
+    box-shadow: 0 4px 15px rgba(255, 149, 0, 0.4);
 }
 
-.alarm-screen button:hover {
-    transform: scale(1.05);
+.alarm-screen #wake-up-btn {
+    background: linear-gradient(135deg, #4CAF50, #45a049);
+    color: white;
+    box-shadow: 0 4px 15px rgba(76, 175, 80, 0.4);
+}
+
+.alarm-screen #close-assistant-btn {
+    background: #666;
+    color: white;
+    box-shadow: 0 4px 15px rgba(100, 100, 100, 0.3);
+}
+
+.alarm-screen button:active {
+    transform: scale(0.95);
 }
 
 .hidden {
     display: none !important;
+}
+
+/* Анимация ТОЛЬКО для alarm-screen */
+@keyframes alarmBlink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.3; }
 }
 
 /* Empty state */
