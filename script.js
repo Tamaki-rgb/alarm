@@ -170,6 +170,40 @@ function triggerAlarm(alarm) {
         document.head.appendChild(style);
     }
 
+    // 🔧 ИСПРАВЛЕНО: Назначаем обработчики ПОСЛЕ создания элементов
+    setTimeout(() => {
+        const stopBtn = document.getElementById('stop-alarm-btn');
+        const snoozeBtn = document.getElementById('snooze-btn');
+        
+        if (stopBtn) {
+            stopBtn.onclick = (e) => {
+                e.stopPropagation();
+                console.log('🛑 Нажата кнопка ВЫКЛЮЧИТЬ');
+                stopAlarmSequence(false);
+            };
+            stopBtn.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('🛑 Тач по кнопке ВЫКЛЮЧИТЬ');
+                stopAlarmSequence(false);
+            });
+        }
+        
+        if (snoozeBtn) {
+            snoozeBtn.onclick = (e) => {
+                e.stopPropagation();
+                console.log('⏸️ Нажата кнопка ОТЛОЖИТЬ');
+                stopAlarmSequence(true);
+            };
+            snoozeBtn.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                console.log('⏸️ Тач по кнопке ОТЛОЖИТЬ');
+                stopAlarmSequence(true);
+            });
+        }
+    }, 100);
+
     // Initialize audio context
     initAudioContext();
     
@@ -178,27 +212,34 @@ function triggerAlarm(alarm) {
     alarmAudio = new Audio('sounds/kolokolnyy-perekhod-43-5574f5.mp3');
     alarmAudio.volume = 1.0;
     alarmAudio.loop = true;
-    alarmAudio.play().catch((err) => {
-        console.error('❌ Ошибка при воспроизведении музыки:', err);
-    });
+    
+    // 🔧 ИСПРАВЛЕНО: Добавляем обработку ошибок воспроизведения
+    const playPromise = alarmAudio.play();
+    if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+            console.error('❌ Ошибка при воспроизведении музыки:', err);
+            // Пробуем ещё раз после взаимодействия
+            document.addEventListener('click', () => {
+                if (alarmAudio) {
+                    alarmAudio.play().catch(e => console.error('Повторная ошибка:', e));
+                }
+            }, { once: true });
+        });
+    }
 
     // Aggressive continuous vibration
     if (navigator.vibrate) {
+        // Сначала останавливаем предыдущую вибрацию
+        if (currentVibrationId) {
+            clearInterval(currentVibrationId);
+        }
+        navigator.vibrate(0);
+        
         currentVibrationId = setInterval(() => {
             navigator.vibrate([600, 200, 600, 200]);
         }, 1600);
         console.log('📳 Вибрация включена');
     }
-
-    document.getElementById('stop-alarm-btn').onclick = () => {
-        console.log('🛑 Нажата кнопка ВЫКЛЮЧИТЬ');
-        stopAlarmSequence(false);
-    };
-
-    document.getElementById('snooze-btn').onclick = () => {
-        console.log('⏸️ Нажата кнопка ОТЛОЖИТЬ');
-        stopAlarmSequence(true);
-    };
 }
 
 function stopAlarmSequence(isSnooze = false) {
@@ -216,6 +257,7 @@ function stopAlarmSequence(isSnooze = false) {
     if (currentVibrationId) {
         clearInterval(currentVibrationId);
         currentVibrationId = null;
+        navigator.vibrate(0); // 🔧 ИСПРАВЛЕНО: Полная остановка вибрации
         console.log('📳 Вибрация отключена');
     }
     
@@ -227,12 +269,16 @@ function stopAlarmSequence(isSnooze = false) {
     const screen = document.getElementById('alarm-active');
     screen.classList.add('hidden');
     
+    // 🔧 ИСПРАВЛЕНО: Сразу сбрасываем флаг isAlarmActive
     if (isSnooze) {
         console.log('⏱️ Установка отсрочки на 5 минут');
         // Reset trigger flag for snooze
-        currentAlarmData.triggeredToday = false;
-        localStorage.setItem('alarms', JSON.stringify(alarms));
+        if (currentAlarmData) {
+            currentAlarmData.triggeredToday = false;
+            localStorage.setItem('alarms', JSON.stringify(alarms));
+        }
         isAlarmActive = false;
+        currentAlarmData = null;
         
         // Trigger again in 5 minutes
         setTimeout(() => {
@@ -243,37 +289,76 @@ function stopAlarmSequence(isSnooze = false) {
         }, 300000);
     } else {
         console.log('✅ Будильник отключен');
-        resetTriggeredFlags();
         isAlarmActive = false;
         
         // Show greeting if smart alarm
-        if (currentAlarmData && currentAlarmData.type === 'smart') {
+        const alarmType = currentAlarmData ? currentAlarmData.type : null;
+        currentAlarmData = null;
+        resetTriggeredFlags();
+        
+        if (alarmType === 'smart') {
             console.log('🤖 Запуск умного ассистента');
             setTimeout(startSmartAssistant, 600);
         }
     }
 }
 
+// 🔧 ИСПРАВЛЕНО: Добавлен голосовой синтез
+function speakText(text) {
+    if ('speechSynthesis' in window) {
+        // Останавливаем предыдущую речь
+        window.speechSynthesis.cancel();
+        
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'ru-RU';
+        utterance.rate = 0.9;
+        utterance.pitch = 1;
+        
+        // Выбираем русский голос если доступен
+        const voices = window.speechSynthesis.getVoices();
+        const russianVoice = voices.find(voice => voice.lang.startsWith('ru'));
+        if (russianVoice) {
+            utterance.voice = russianVoice;
+        }
+        
+        window.speechSynthesis.speak(utterance);
+        console.log('🔊 Озвучено:', text);
+    } else {
+        console.log('⚠️ Speech synthesis не поддерживается');
+    }
+}
+
 async function startSmartAssistant() {
     const greeting = greetings[Math.floor(Math.random() * greetings.length)];
     console.log('🎤 Приветствие:', greeting);
+    speakText(greeting);
     
     setTimeout(async () => {
         const weather = await getWeather();
         if (weather) {
-            console.log(`🌤️ Погода: В городе ${weather.city} сейчас ${weather.temp}°, ${weather.condition}`);
+            const weatherText = `В городе ${weather.city} сейчас ${weather.temp} градусов, ${weather.condition}`;
+            console.log(`🌤️ Погода: ${weatherText}`);
+            speakText(weatherText);
         } else {
+            const noWeatherText = 'Не удалось получить прогноз погоды';
             console.log('🌤️ Погода недоступна');
+            speakText(noWeatherText);
         }
         
-        setTimeout(readTodayTasks, 2000);
+        setTimeout(readTodayTasks, 3000);
     }, 2000);
 }
 
 async function getWeather() {
     try {
         console.log('📡 Загрузка погоды...');
-        const res = await fetch('https://wttr.in/?format=j1', { timeout: 5000 });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
+        const res = await fetch('https://wttr.in/?format=j1', { 
+            signal: controller.signal 
+        });
+        clearTimeout(timeoutId);
         
         if (!res.ok) {
             console.warn('❌ Weather API failed:', res.status);
@@ -300,12 +385,16 @@ function readTodayTasks() {
     const todayTasks = tasks.filter(t => t.date === today && !t.done);
     
     if (todayTasks.length === 0) {
-        console.log('📋 На сегодня задач нет');
+        const noTasksText = 'На сегодня задач нет';
+        console.log('📋 ' + noTasksText);
+        speakText(noTasksText);
         return;
     }
     
+    const tasksText = 'На сегодня запланировано: ' + todayTasks.map(t => t.text).join('. ');
     console.log('📋 Задачи на сегодня:');
     todayTasks.forEach(task => console.log('  - ' + task.text));
+    speakText(tasksText);
 }
 
 function resetTriggeredFlags() {
@@ -313,35 +402,96 @@ function resetTriggeredFlags() {
     localStorage.setItem('alarms', JSON.stringify(alarms));
 }
 
-// Timer + Drum
+// 🔧 ИСПРАВЛЕНО: Бесконечный барабан
 function initDrums() {
     const minDrum = document.getElementById('minutes-drum');
     const secDrum = document.getElementById('seconds-drum');
     
-    // Create infinite scrolling - repeat items
-    const minItems = Array.from({length: 120}, (_,i) => `<div class="drum-item">${(i % 60).toString().padStart(2,'0')}</div>`).join('');
-    const secItems = Array.from({length: 120}, (_,i) => `<div class="drum-item">${(i % 60).toString().padStart(2,'0')}</div>`).join('');
+    if (!minDrum || !secDrum) return;
     
-    minDrum.innerHTML = minItems;
-    secDrum.innerHTML = secItems;
-    
-    // Add styles for highlighting
-    const style = document.createElement('style');
-    style.textContent = `
-        .drum-item.selected {
-            background: var(--accent);
-            color: white;
-            font-weight: bold;
-            border-radius: 8px;
+    // Создаем много элементов для имитации бесконечности
+    const createInfiniteItems = () => {
+        let html = '';
+        for (let i = 0; i < 300; i++) {  // 300 элементов для плавного скролла
+            html += `<div class="drum-item">${(i % 60).toString().padStart(2,'0')}</div>`;
         }
-    `;
-    document.head.appendChild(style);
+        return html;
+    };
     
-    // Scroll to middle (item 30 which is 0)
-    minDrum.scrollTop = 30 * 40;
-    secDrum.scrollTop = 30 * 40;
+    minDrum.innerHTML = createInfiniteItems();
+    secDrum.innerHTML = createInfiniteItems();
+    
+    // Добавляем стили
+    if (!document.querySelector('style[data-drum]')) {
+        const style = document.createElement('style');
+        style.setAttribute('data-drum', 'true');
+        style.textContent = `
+            .drum-item {
+                height: 40px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 1.2rem;
+                cursor: pointer;
+                transition: all 0.1s;
+            }
+            .drum-item.selected {
+                background: var(--accent);
+                color: white;
+                font-weight: bold;
+                border-radius: 8px;
+            }
+            #minutes-drum, #seconds-drum {
+                scroll-behavior: smooth;
+                -webkit-overflow-scrolling: touch;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+    
+    // Скроллим в середину (там где числа 00-59)
+    const middlePosition = 120 * 40; // 120 элементов * высота
+    minDrum.scrollTop = middlePosition;
+    secDrum.scrollTop = middlePosition;
     
     updateDrumHighlight();
+    
+    // 🔧 ИСПРАВЛЕНО: Добавляем обработку бесконечного скролла
+    const handleInfiniteScroll = (drum) => {
+        const scrollTop = drum.scrollTop;
+        const maxScroll = drum.scrollHeight - drum.clientHeight;
+        
+        // Если скроллимся к концу - перепрыгиваем в начало
+        if (scrollTop >= maxScroll - 40) {
+            drum.scrollTop = middlePosition;
+        }
+        // Если скроллимся к началу - перепрыгиваем в конец
+        else if (scrollTop <= 40) {
+            drum.scrollTop = maxScroll - middlePosition;
+        }
+        
+        updateDrumHighlight();
+    };
+    
+    minDrum.addEventListener('scroll', () => handleInfiniteScroll(minDrum));
+    secDrum.addEventListener('scroll', () => handleInfiniteScroll(secDrum));
+    
+    // Обработка тапов/кликов по элементам
+    const handleDrumClick = (e, drum) => {
+        const item = e.target.closest('.drum-item');
+        if (item) {
+            const drumRect = drum.getBoundingClientRect();
+            const itemRect = item.getBoundingClientRect();
+            const offset = itemRect.top - drumRect.top + drum.scrollTop - (drumRect.height / 2) + (itemRect.height / 2);
+            drum.scrollTo({
+                top: offset,
+                behavior: 'smooth'
+            });
+        }
+    };
+    
+    minDrum.addEventListener('click', (e) => handleDrumClick(e, minDrum));
+    secDrum.addEventListener('click', (e) => handleDrumClick(e, secDrum));
 }
 
 function updateDrumHighlight() {
@@ -354,11 +504,16 @@ function updateDrumHighlight() {
     document.querySelectorAll('.drum-item.selected').forEach(el => el.classList.remove('selected'));
     
     // Add new highlights to center items
+    const getCenterIndex = (drum) => {
+        const center = drum.scrollTop + drum.clientHeight / 2;
+        return Math.floor(center / 40);
+    };
+    
     const minItems = minDrum.querySelectorAll('.drum-item');
     const secItems = secDrum.querySelectorAll('.drum-item');
     
-    const minIndex = Math.round(minDrum.scrollTop / 40);
-    const secIndex = Math.round(secDrum.scrollTop / 40);
+    const minIndex = getCenterIndex(minDrum);
+    const secIndex = getCenterIndex(secDrum);
     
     if (minItems[minIndex]) minItems[minIndex].classList.add('selected');
     if (secItems[secIndex]) secItems[secIndex].classList.add('selected');
@@ -367,19 +522,20 @@ function updateDrumHighlight() {
 function getTimerValue() {
     const minDrum = document.getElementById('minutes-drum');
     const secDrum = document.getElementById('seconds-drum');
+    if (!minDrum || !secDrum) return 0;
+    
     const minutes = Math.round(minDrum.scrollTop / 40) % 60;
     const seconds = Math.round(secDrum.scrollTop / 40) % 60;
     return minutes * 60 + seconds;
 }
 
-// Drum scroll event
-setTimeout(() => {
-    const minDrum = document.getElementById('minutes-drum');
-    const secDrum = document.getElementById('seconds-drum');
-    
-    if (minDrum) minDrum.addEventListener('scroll', updateDrumHighlight);
-    if (secDrum) secDrum.addEventListener('scroll', updateDrumHighlight);
-}, 100);
+function updateTimerDisplay() {
+    const display = document.getElementById('timer-display');
+    if (!display) return;
+    const min = Math.floor(timerSeconds / 60);
+    const sec = timerSeconds % 60;
+    display.textContent = `${min.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;
+}
 
 // Timer Controls
 function handleTimerStart() {
@@ -436,7 +592,6 @@ function playTimerSound() {
     try {
         console.log('🔔 Таймер завершён, воспроизведение звука...');
         generateTimerSound();
-        // Play timer bell (timer-bell_m1tycbno.mp3 - 26 KB)
         const audio = new Audio('sounds/timer-bell_m1tycbno.mp3');
         audio.volume = 1.0;
         audio.play().catch(() => console.log('⚠️ Timer sound not found, используется сгенерированный звук'));
@@ -445,53 +600,48 @@ function playTimerSound() {
     }
 }
 
-document.getElementById('timer-start').addEventListener('click', handleTimerStart);
-document.getElementById('timer-pause').addEventListener('click', handleTimerPause);
-document.getElementById('timer-reset').addEventListener('click', handleTimerReset);
-
-function updateTimerDisplay() {
-    const min = Math.floor(timerSeconds / 60);
-    const sec = timerSeconds % 60;
-    document.getElementById('timer-display').textContent = `${min.toString().padStart(2,'0')}:${sec.toString().padStart(2,'0')}`;
+function updateStopwatchDisplay() {
+    const display = document.getElementById('timer-display');
+    if (!display) return;
+    const hours = Math.floor(stopwatchSeconds / 3600);
+    const mins = Math.floor((stopwatchSeconds % 3600) / 60);
+    const secs = stopwatchSeconds % 60;
+    display.textContent = `${hours.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
 }
 
-// Stopwatch
+// Stopwatch toggle
 let isStopwatchMode = false;
-document.getElementById('stopwatch-btn').addEventListener('click', () => {
+
+function toggleStopwatch() {
+    const stopwatchBtn = document.getElementById('stopwatch-btn');
+    const drumContainer = document.querySelector('.drum-container');
+    
     isStopwatchMode = !isStopwatchMode;
     
     if (isStopwatchMode) {
         clearInterval(timerInterval);
         isTimerRunning = false;
         
-        document.getElementById('stopwatch-btn').textContent = 'Таймер';
-        document.getElementById('timer-start').textContent = 'Старт';
-        document.getElementById('timer-pause').textContent = 'Пауза';
-        document.getElementById('timer-reset').textContent = 'Сброс';
-        document.querySelector('.drum-container').style.display = 'none';
+        if (stopwatchBtn) stopwatchBtn.textContent = 'Таймер';
+        if (drumContainer) drumContainer.style.display = 'none';
         stopwatchSeconds = 0;
         updateStopwatchDisplay();
     } else {
         clearInterval(stopwatchInterval);
         isStopwatchRunning = false;
         
-        document.getElementById('stopwatch-btn').textContent = 'Секундомер';
-        document.querySelector('.drum-container').style.display = 'grid';
+        if (stopwatchBtn) stopwatchBtn.textContent = 'Секундомер';
+        if (drumContainer) drumContainer.style.display = 'grid';
         timerSeconds = 0;
         updateTimerDisplay();
     }
-});
-
-function updateStopwatchDisplay() {
-    const hours = Math.floor(stopwatchSeconds / 3600);
-    const mins = Math.floor((stopwatchSeconds % 3600) / 60);
-    const secs = stopwatchSeconds % 60;
-    document.getElementById('timer-display').textContent = `${hours.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
 }
 
 // ALARM MODAL
-document.getElementById('add-alarm-btn').addEventListener('click', () => {
+function openAlarmModal() {
     const modal = document.getElementById('alarm-modal');
+    if (!modal) return;
+    
     modal.innerHTML = `
         <div class="modal-content">
             <h3>Новый будильник</h3>
@@ -514,13 +664,17 @@ document.getElementById('add-alarm-btn').addEventListener('click', () => {
         </div>
     `;
     modal.classList.remove('hidden');
-});
+}
 
 function saveAlarm() {
-    const time = document.getElementById('alarm-time').value;
+    const timeInput = document.getElementById('alarm-time');
+    if (!timeInput) return;
+    
+    const time = timeInput.value;
     const days = Array.from(document.querySelectorAll('#alarm-modal input[type="checkbox"]:checked'))
         .map(el => el.value);
-    const type = document.querySelector('#alarm-modal input[name="type"]:checked').value;
+    const typeRadio = document.querySelector('#alarm-modal input[name="type"]:checked');
+    const type = typeRadio ? typeRadio.value : 'normal';
     
     if (time && days.length > 0) {
         if (!/^\d{2}:\d{2}$/.test(time)) {
@@ -546,8 +700,10 @@ function deleteAlarm(index) {
 }
 
 // TASK MODAL
-document.getElementById('add-task-btn').addEventListener('click', () => {
+function openTaskModal() {
     const modal = document.getElementById('task-modal');
+    if (!modal) return;
+    
     modal.innerHTML = `
         <div class="modal-content">
             <h3>Добавить задачу</h3>
@@ -557,11 +713,17 @@ document.getElementById('add-task-btn').addEventListener('click', () => {
         </div>
     `;
     modal.classList.remove('hidden');
-    document.getElementById('task-text').focus();
-});
+    setTimeout(() => {
+        const input = document.getElementById('task-text');
+        if (input) input.focus();
+    }, 100);
+}
 
 function saveTask() {
-    const text = document.getElementById('task-text').value.trim();
+    const textInput = document.getElementById('task-text');
+    if (!textInput) return;
+    
+    const text = textInput.value.trim();
     if (text) {
         const today = new Date().toISOString().split('T')[0];
         tasks.push({ text, date: today, done: false });
@@ -588,20 +750,61 @@ function deleteTask(index) {
 }
 
 function closeModal(id) {
-    document.getElementById(id).classList.add('hidden');
+    const modal = document.getElementById(id);
+    if (modal) modal.classList.add('hidden');
 }
 
-// Close modal when clicking outside
-document.getElementById('alarm-modal').addEventListener('click', (e) => {
-    if (e.target.id === 'alarm-modal') closeModal('alarm-modal');
-});
+// 🔧 ИСПРАВЛЕНО: Инициализация после загрузки DOM
+function initApp() {
+    console.log('✨ Ailarm приложение загружено!');
+    
+    // Назначаем обработчики кнопок
+    const addAlarmBtn = document.getElementById('add-alarm-btn');
+    const addTaskBtn = document.getElementById('add-task-btn');
+    const stopwatchBtn = document.getElementById('stopwatch-btn');
+    const timerStart = document.getElementById('timer-start');
+    const timerPause = document.getElementById('timer-pause');
+    const timerReset = document.getElementById('timer-reset');
+    const alarmModal = document.getElementById('alarm-modal');
+    const taskModal = document.getElementById('task-modal');
+    
+    if (addAlarmBtn) addAlarmBtn.addEventListener('click', openAlarmModal);
+    if (addTaskBtn) addTaskBtn.addEventListener('click', openTaskModal);
+    if (stopwatchBtn) stopwatchBtn.addEventListener('click', toggleStopwatch);
+    if (timerStart) timerStart.addEventListener('click', handleTimerStart);
+    if (timerPause) timerPause.addEventListener('click', handleTimerPause);
+    if (timerReset) timerReset.addEventListener('click', handleTimerReset);
+    
+    // Close modal when clicking outside
+    if (alarmModal) {
+        alarmModal.addEventListener('click', (e) => {
+            if (e.target.id === 'alarm-modal') closeModal('alarm-modal');
+        });
+    }
+    
+    if (taskModal) {
+        taskModal.addEventListener('click', (e) => {
+            if (e.target.id === 'task-modal') closeModal('task-modal');
+        });
+    }
+    
+    // Инициализируем компоненты
+    renderAlarms();
+    renderTasks();
+    initDrums();
+    
+    // Предзагружаем голоса для speech synthesis
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.getVoices();
+        window.speechSynthesis.onvoiceschanged = () => {
+            window.speechSynthesis.getVoices();
+        };
+    }
+}
 
-document.getElementById('task-modal').addEventListener('click', (e) => {
-    if (e.target.id === 'task-modal') closeModal('task-modal');
-});
-
-// Init
-console.log('✨ Ailarm приложение загружено!');
-renderAlarms();
-renderTasks();
-initDrums();
+// Запускаем приложение после полной загрузки DOM
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+} else {
+    initApp();
+}
