@@ -12,6 +12,7 @@ let lastCheckDate = new Date().toISOString().split('T')[0];
 let currentVibrationId = null;
 let audioContext = null;
 let alarmAudio = null;
+let isAlarmActive = false;
 
 const greetings = [
     "Доброе утро. Надеюсь, ты хорошо выспался, ведь столько всего тебя ждет.",
@@ -38,7 +39,7 @@ function initAudioContext() {
     return audioContext;
 }
 
-// Generate loud alarm beep sound (800Hz)
+// Generate loud alarm beep sound (800Hz) as backup
 function generateAlarmSound() {
     const ctx = initAudioContext();
     if (!ctx) return;
@@ -55,7 +56,6 @@ function generateAlarmSound() {
     osc.frequency.value = 800;
     osc.type = 'sine';
     
-    // Maximum volume alarm
     gain.gain.setValueAtTime(1.0, now);
     gain.gain.setValueAtTime(1.0, now + duration - 0.02);
     gain.gain.linearRampToValueAtTime(0, now + duration);
@@ -64,7 +64,7 @@ function generateAlarmSound() {
     osc.stop(now + duration);
 }
 
-// Generate timer beep sound (1200Hz)
+// Generate timer beep sound (1200Hz) as backup
 function generateTimerSound() {
     const ctx = initAudioContext();
     if (!ctx) return;
@@ -105,7 +105,7 @@ function renderAlarms() {
     list.innerHTML = alarms.map((alarm, i) => `
         <div class="alarm-item">
             <div class="alarm-time">${alarm.time}</div>
-            <div class="alarm-info">${alarm.days.join(', ')} • ${alarm.type === 'smart' ? 'Умный' : 'Обычный'}</div>
+            <div class="alarm-info">${alarm.days.join(', ')}</div>
             <button class="delete-btn" onclick="deleteAlarm(${i})">✕</button>
         </div>
     `).join('');
@@ -149,7 +149,7 @@ function checkAlarms() {
     const currentDay = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'][now.getDay()];
 
     alarms.forEach((alarm, index) => {
-        if (alarm.time === currentTime && alarm.days.includes(currentDay) && !alarm.triggeredToday) {
+        if (alarm.time === currentTime && alarm.days.includes(currentDay) && !alarm.triggeredToday && !isAlarmActive) {
             alarm.triggeredToday = true;
             localStorage.setItem('alarms', JSON.stringify(alarms));
             triggerAlarm(alarm);
@@ -160,6 +160,8 @@ function checkAlarms() {
 let alarmSoundInterval = null;
 
 function triggerAlarm(alarm) {
+    isAlarmActive = true;
+    
     const screen = document.getElementById('alarm-active');
     screen.classList.remove('hidden');
     
@@ -172,7 +174,7 @@ function triggerAlarm(alarm) {
     
     screen.innerHTML = `
         <h1 style="font-size: 6rem; margin: 0; animation: blink 0.5s infinite;">${alarm.time}</h1>
-        <p style="font-size: 2.5rem; margin: 30px 0; font-weight: bold;">${alarm.type === 'smart' ? '🔔 Умный ассистент' : '⏰ ПОРА ПРОСЫПАТЬСЯ!'}</p>
+        <p style="font-size: 2.5rem; margin: 30px 0; font-weight: bold;">⏰ ПОРА ПРОСЫПАТЬСЯ!</p>
         <div style="display: flex; gap: 20px; margin-top: 50px;">
             <button id="snooze-btn" style="padding: 25px 60px; font-size: 1.6rem; background: #ff9500; color: white; border: none; border-radius: 15px; cursor: pointer; font-weight: bold;">Отложить (5 мин)</button>
             <button id="stop-alarm-btn" style="padding: 25px 60px; font-size: 1.6rem; background: #f44336; color: white; border: none; border-radius: 15px; cursor: pointer; font-weight: bold;">ВЫКЛЮЧИТЬ</button>
@@ -180,29 +182,32 @@ function triggerAlarm(alarm) {
     `;
 
     // Add CSS animation
-    const style = document.createElement('style');
-    style.textContent = `
-        @keyframes blink {
-            0%, 50% { opacity: 1; }
-            51%, 100% { opacity: 0.3; }
-        }
-    `;
-    document.head.appendChild(style);
+    if (!document.querySelector('style[data-animation]')) {
+        const style = document.createElement('style');
+        style.setAttribute('data-animation', 'true');
+        style.textContent = `
+            @keyframes blink {
+                0%, 50% { opacity: 1; }
+                51%, 100% { opacity: 0.3; }
+            }
+        `;
+        document.head.appendChild(style);
+    }
 
-    // Initialize audio context (MUST be before generating sounds)
+    // Initialize audio context
     initAudioContext();
     
-    // Start LOUD continuous alarm sound immediately (every 600ms)
+    // Start backup beep sound (every 600ms)
     alarmSoundInterval = setInterval(() => {
         generateAlarmSound();
     }, 600);
     
-    // Also try to play file as backup
-    alarmAudio = new Audio('sounds/alarm.mp3');
+    // Play uploaded alarm music (kolokolnyy-perekhod-43-5574f5.mp3 - 4.4 MB)
+    alarmAudio = new Audio('sounds/kolokolnyy-perekhod-43-5574f5.mp3');
     alarmAudio.volume = 1.0;
     alarmAudio.loop = true;
     alarmAudio.play().catch(() => {
-        console.log('Using generated sound');
+        console.log('Using generated alarm sound');
     });
 
     // Aggressive continuous vibration
@@ -213,7 +218,7 @@ function triggerAlarm(alarm) {
     }
 
     document.getElementById('stop-alarm-btn').onclick = () => {
-        stopAlarmSequence(alarm);
+        stopAlarmSequence(alarm, false);
     };
 
     document.getElementById('snooze-btn').onclick = () => {
@@ -225,6 +230,7 @@ function stopAlarmSequence(alarm, isSnooze = false) {
     // Stop all sounds
     if (alarmAudio) {
         alarmAudio.pause();
+        alarmAudio.currentTime = 0;
         alarmAudio = null;
     }
     
@@ -248,85 +254,43 @@ function stopAlarmSequence(alarm, isSnooze = false) {
     screen.classList.add('hidden');
     
     if (isSnooze) {
-        setTimeout(() => triggerAlarm(alarm), 300000);
+        // Set snooze flag
+        alarm.triggeredToday = false;
+        localStorage.setItem('alarms', JSON.stringify(alarms));
+        isAlarmActive = false;
+        
+        // Trigger again in 5 minutes
+        setTimeout(() => {
+            if (!isAlarmActive) {
+                triggerAlarm(alarm);
+            }
+        }, 300000);
     } else {
-        if (alarm.type === 'smart') {
-            setTimeout(startSmartAssistant, 600);
-        }
+        // Permanently disable for today
         resetTriggeredFlags();
+        isAlarmActive = false;
+        
+        // Show greeting message (no audio, just logged)
+        setTimeout(startSmartAssistant, 600);
     }
 }
 
 async function startSmartAssistant() {
     const greeting = greetings[Math.floor(Math.random() * greetings.length)];
-    speak(greeting);
-
-    setTimeout(async () => {
-        const weather = await getWeather();
-        if (weather) {
-            speak(`В городе ${weather.city} сейчас ${weather.temp} градусов, ${weather.condition}`);
+    console.log('🎤 Приветствие:', greeting);
+    
+    // Greeting logged, no audio output
+    
+    setTimeout(() => {
+        console.log('📋 Задачи на сегодня:');
+        const today = new Date().toISOString().split('T')[0];
+        const todayTasks = tasks.filter(t => t.date === today && !t.done);
+        if (todayTasks.length === 0) {
+            console.log('На сегодня задач нет');
         } else {
-            speak("Погода недоступна");
+            todayTasks.forEach(task => console.log('- ' + task.text));
         }
-        
-        setTimeout(readTodayTasks, 3500);
-    }, 2500);
-}
-
-function speak(text) {
-    if (!('speechSynthesis' in window)) {
-        console.warn('Speech not supported');
-        return;
-    }
-    try {
-        speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'ru-RU';
-        utterance.rate = 0.85;
-        utterance.pitch = 1.0;
-        utterance.volume = 1.0;
-        speechSynthesis.speak(utterance);
-    } catch(e) {
-        console.error('Speech error:', e);
-    }
-}
-
-async function getWeather() {
-    try {
-        // Free weather API with no key needed
-        const res = await fetch('https://wttr.in/?format=j1', { timeout: 5000 });
-        
-        if (!res.ok) {
-            console.warn('Weather API failed');
-            return null;
-        }
-        
-        const data = await res.json();
-        const current = data.current_condition[0];
-        const location = data.nearest_area[0];
-        
-        return {
-            city: location.areaName[0].value || 'Город',
-            temp: Math.round(current.temp_C),
-            condition: current.weatherDesc[0].value || 'облачно'
-        };
-    } catch(e) {
-        console.error('Weather error:', e);
-        return null;
-    }
-}
-
-function readTodayTasks() {
-    const today = new Date().toISOString().split('T')[0];
-    const todayTasks = tasks.filter(t => t.date === today && !t.done);
-    
-    if (todayTasks.length === 0) {
-        speak("На сегодня задач нет");
-        return;
-    }
-    
-    const taskText = todayTasks.map(t => t.text).join(", ");
-    speak("Ваши задачи: " + taskText);
+    }, 2000);
 }
 
 function resetTriggeredFlags() {
@@ -339,8 +303,12 @@ function initDrums() {
     const minDrum = document.getElementById('minutes-drum');
     const secDrum = document.getElementById('seconds-drum');
     
-    minDrum.innerHTML = Array.from({length: 61}, (_,i) => `<div class="drum-item">${i.toString().padStart(2,'0')}</div>`).join('');
-    secDrum.innerHTML = Array.from({length: 60}, (_,i) => `<div class="drum-item">${i.toString().padStart(2,'0')}</div>`).join('');
+    // Create infinite scrolling - repeat items
+    const minItems = Array.from({length: 120}, (_,i) => `<div class="drum-item">${(i % 60).toString().padStart(2,'0')}</div>`).join('');
+    const secItems = Array.from({length: 120}, (_,i) => `<div class="drum-item">${(i % 60).toString().padStart(2,'0')}</div>`).join('');
+    
+    minDrum.innerHTML = minItems;
+    secDrum.innerHTML = secItems;
     
     // Add styles for highlighting
     const style = document.createElement('style');
@@ -353,6 +321,10 @@ function initDrums() {
         }
     `;
     document.head.appendChild(style);
+    
+    // Scroll to middle (item 30 which is 0)
+    minDrum.scrollTop = 30 * 40;
+    secDrum.scrollTop = 30 * 40;
     
     updateDrumHighlight();
 }
@@ -380,9 +352,9 @@ function updateDrumHighlight() {
 function getTimerValue() {
     const minDrum = document.getElementById('minutes-drum');
     const secDrum = document.getElementById('seconds-drum');
-    const minutes = Math.round(minDrum.scrollTop / 40) || 0;
-    const seconds = Math.round(secDrum.scrollTop / 40) || 0;
-    return Math.min(minutes, 60) * 60 + Math.min(seconds, 59);
+    const minutes = Math.round(minDrum.scrollTop / 40) % 60;
+    const seconds = Math.round(secDrum.scrollTop / 40) % 60;
+    return minutes * 60 + seconds;
 }
 
 // Drum scroll event
@@ -448,7 +420,8 @@ function handleTimerReset() {
 function playTimerSound() {
     try {
         generateTimerSound();
-        const audio = new Audio('sounds/timer.mp3');
+        // Play timer bell (timer-bell_m1tycbno.mp3 - 26 KB)
+        const audio = new Audio('sounds/timer-bell_m1tycbno.mp3');
         audio.volume = 1.0;
         audio.play().catch(() => console.log('Timer sound not found'));
     } catch (e) {
@@ -516,10 +489,6 @@ document.getElementById('add-alarm-btn').addEventListener('click', () => {
                 <label><input type="checkbox" value="Сб"> Сб</label>
                 <label><input type="checkbox" value="Вс"> Вс</label>
             </div>
-            <div class="type-selector">
-                <label><input type="radio" name="type" value="normal" checked> Обычный</label>
-                <label><input type="radio" name="type" value="smart"> Умный ассистент</label>
-            </div>
             <button onclick="saveAlarm()">Сохранить</button>
             <button onclick="closeModal('alarm-modal')" style="background: #999;">Отмена</button>
         </div>
@@ -531,7 +500,6 @@ function saveAlarm() {
     const time = document.getElementById('alarm-time').value;
     const days = Array.from(document.querySelectorAll('#alarm-modal input[type="checkbox"]:checked'))
         .map(el => el.value);
-    const type = document.querySelector('#alarm-modal input[name="type"]:checked').value;
     
     if (time && days.length > 0) {
         if (!/^\d{2}:\d{2}$/.test(time)) {
@@ -539,7 +507,7 @@ function saveAlarm() {
             return;
         }
         
-        alarms.push({ time, days, type, triggeredToday: false });
+        alarms.push({ time, days, triggeredToday: false });
         localStorage.setItem('alarms', JSON.stringify(alarms));
         renderAlarms();
         closeModal('alarm-modal');
