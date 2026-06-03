@@ -1,7 +1,69 @@
-<svg width="512" height="512" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="50" cy="50" r="45" stroke="#ff6b9d" stroke-width="8"/>
-  <circle cx="50" cy="50" r="22" fill="#ff6b9d"/>
-  <path d="M50 18 V32" stroke="#ff6b9d" stroke-width="9" stroke-linecap="round"/>
-  <path d="M50 68 V82" stroke="#ff6b9d" stroke-width="9" stroke-linecap="round"/>
-  <circle cx="50" cy="50" r="8" fill="#fff"/>
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+        <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#1a1626"/>
+            <stop offset="100%" style="stop-color:#211c32"/>
+        </linearGradient>
+        <linearGradient id="bellGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#9b5de5"/>
+            <stop offset="100%" style="stop-color:#f15bb5"/>
+        </linearGradient>
+        <filter id="glow">
+            <feGaussianBlur stdDeviation="6" result="blur"/>
+            <feMerge>
+                <feMergeNode in="blur"/>
+                <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+        </filter>
+        <filter id="innerShadow">
+            <feOffset dx="2" dy="3"/>
+            <feGaussianBlur stdDeviation="4"/>
+            <feComposite operator="out" in2="SourceGraphic"/>
+            <feComponentTransfer>
+                <feFuncA type="linear" slope="0.15"/>
+            </feComponentTransfer>
+            <feBlend in="SourceGraphic"/>
+        </filter>
+    </defs>
+    
+    <!-- Фон -->
+    <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+    
+    <!-- Обводка неоморфизм -->
+    <rect x="4" y="4" width="504" height="504" rx="108" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="2"/>
+    
+    <!-- Тень будильника (неоморфизм) -->
+    <circle cx="256" cy="272" r="132" fill="none" stroke="rgba(0,0,0,0.3)" stroke-width="6" transform="translate(4,5)"/>
+    <circle cx="256" cy="272" r="132" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="6" transform="translate(-4,-3)"/>
+    
+    <!-- Корпус будильника -->
+    <circle cx="256" cy="272" r="130" fill="none" stroke="url(#bellGrad)" stroke-width="14" filter="url(#glow)"/>
+    
+    <!-- Ножки -->
+    <g stroke="url(#bellGrad)" stroke-width="12" stroke-linecap="round" filter="url(#glow)">
+        <line x1="186" y1="370" x2="158" y2="428"/>
+        <line x1="326" y1="370" x2="354" y2="428"/>
+    </g>
+    
+    <!-- Звонок сверху -->
+    <path d="M194 150 Q194 116 256 116 Q318 116 318 150" fill="none" stroke="url(#bellGrad)" stroke-width="12" stroke-linecap="round" filter="url(#glow)"/>
+    
+    <!-- Шарики звонка -->
+    <circle cx="196" cy="152" r="18" fill="url(#bellGrad)" filter="url(#glow)"/>
+    <circle cx="316" cy="152" r="18" fill="url(#bellGrad)" filter="url(#glow)"/>
+    
+    <!-- Циферблат -->
+    <circle cx="256" cy="272" r="90" fill="#211c32" stroke="rgba(255,255,255,0.04)" stroke-width="3"/>
+    
+    <!-- Часовая стрелка -->
+    <line x1="256" y1="272" x2="256" y2="210" stroke="url(#bellGrad)" stroke-width="8" stroke-linecap="round"/>
+    
+    <!-- Минутная стрелка -->
+    <line x1="256" y1="272" x2="300" y2="280" stroke="url(#bellGrad)" stroke-width="6" stroke-linecap="round"/>
+    
+    <!-- Центр -->
+    <circle cx="256" cy="272" r="10" fill="url(#bellGrad)"/>
+    
+    <!-- Внутренний блик -->
+    <circle cx="230" cy="245" r="35" fill="rgba(255,255,255,0.03)"/>
 </svg>
