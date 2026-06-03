@@ -1,112 +1,498 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ailarm</title>
-    <link rel="stylesheet" href="style.css">
-    <link rel="manifest" href="manifest.json">
-    <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <script src="script.js" defer></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#7c3aed" />
+  <meta name="description" content="Ailarm — умный будильник с голосовым ассистентом, погодой и задачами" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Ailarm" />
+  <link rel="manifest" href="manifest.json" />
+  <title>Ailarm — Умный будильник</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-    <div class="container">
-        <header class="header">
-            <div style="display: flex; align-items: center; gap: 16px;">
-                <div class="logo">
-                    <svg width="52" height="52" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <circle cx="50" cy="50" r="42" stroke="currentColor" stroke-width="9"/>
-                        <circle cx="50" cy="50" r="18" fill="currentColor"/>
-                        <path d="M50 22 V35" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>
-                        <path d="M50 65 V78" stroke="currentColor" stroke-width="8" stroke-linecap="round"/>
-                    </svg>
-                </div>
-                <h1>Ailarm</h1>
-            </div>
-            <button id="theme-toggle" class="theme-btn">🌙</button>
-        </header>
 
-        <!-- Tab Navigation -->
-        <div class="tab-nav">
-            <button class="tab-btn active" data-tab="alarms">⏰ Будильники</button>
-            <button class="tab-btn" data-tab="timer">⏱️ Таймер</button>
-            <button class="tab-btn" data-tab="tasks">📝 Задачи</button>
-        </div>
+<!-- ══════════════════════════════
+     TOPBAR
+══════════════════════════════ -->
+<header class="topbar">
+  <div class="topbar-left">
+    <div class="app-logo">⏰</div>
+    <span class="app-title"><span>Ai</span>larm</span>
+  </div>
+  <div class="topbar-right">
+    <span class="top-time" id="topTime">00:00</span>
+    <button class="icon-btn" id="themeToggleBtn" title="Тема">🌓</button>
+  </div>
+</header>
 
-        <!-- Alarms Tab -->
-        <div id="alarms" class="tab-content active">
-            <div class="card">
-                <h2>🔔 Мои будильники</h2>
-                <div id="alarms-list"></div>
-                <button id="add-alarm-btn" class="add-btn">+ Добавить будильник</button>
-            </div>
-        </div>
+<!-- ══════════════════════════════
+     MAIN WRAPPER
+══════════════════════════════ -->
+<main class="app-wrapper">
 
-        <!-- Timer Tab -->
-        <div id="timer" class="tab-content">
-            <div class="card">
-                <h2>⏱️ Таймер / Секундомер</h2>
-                <div class="timer-display" id="timer-display">00:00</div>
-                <div class="drum-container">
-                    <div class="drum" id="minutes-drum"></div>
-                    <div class="drum" id="seconds-drum"></div>
-                </div>
-                <div class="timer-controls">
-                    <button id="timer-start">Старт</button>
-                    <button id="timer-pause">Пауза</button>
-                    <button id="timer-reset">Сброс</button>
-                </div>
-                <button id="stopwatch-btn" style="width: 100%; padding: 14px; background: linear-gradient(135deg, #4CAF50, #45a049); color: white; border: none; border-radius: 16px; font-size: 1rem; cursor: pointer; margin-top: 12px; font-weight: 600;">Секундомер</button>
-            </div>
-        </div>
+  <!-- ── HOME PAGE ── -->
+  <section class="page active" id="pageHome">
 
-        <!-- Tasks Tab -->
-        <div id="tasks" class="tab-content">
-            <div class="card">
-                <h2>📝 Задачи на сегодня</h2>
-                <div id="tasks-list"></div>
-                <button id="add-task-btn" class="add-btn">+ Добавить задачу</button>
-            </div>
-        </div>
+    <!-- Clock Hero -->
+    <div class="card clock-hero">
+      <div class="clock-time" id="clockTime">00:00</div>
+      <div class="clock-date" id="clockDate">Загрузка...</div>
+      <div class="clock-greeting" id="clockGreeting">Доброе утро 👋</div>
     </div>
 
-    <!-- Модальные окна -->
-    <div id="alarm-modal" class="modal hidden"></div>
-    <div id="task-modal" class="modal hidden"></div>
-    <div id="alarm-active" class="alarm-screen hidden"></div>
+    <!-- Weather Mini -->
+    <div class="card weather-mini" onclick="navigate('pageWeather')" title="Подробнее о погоде">
+      <div class="weather-icon-big" id="weatherMiniIcon">🌤️</div>
+      <div class="weather-main">
+        <div class="weather-temp" id="weatherMiniTemp">--°</div>
+        <div class="weather-desc" id="weatherMiniDesc">Загрузка погоды...</div>
+      </div>
+      <div class="text-muted" style="font-size:20px">›</div>
+    </div>
 
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('service-worker.js').catch(err => console.warn('Service Worker:', err));
-        }
+    <!-- Tasks Preview -->
+    <div class="section-title">Задачи на сегодня</div>
+    <div class="card" style="padding:14px 16px;">
+      <div class="tasks-progress">
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill" id="taskProgressFill" style="width:0%"></div>
+        </div>
+        <span class="progress-label" id="taskProgressLabel">0/0</span>
+        <button class="btn-secondary" style="padding:6px 12px;font-size:11px" onclick="navigate('pageTasks')">Все</button>
+      </div>
+      <div id="taskListPreview" style="margin-top:6px"></div>
+    </div>
 
-        // Tab switching
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const tabName = btn.dataset.tab;
-                
-                // Hide all tabs
-                document.querySelectorAll('.tab-content').forEach(tab => {
-                    tab.classList.remove('active');
-                });
-                
-                // Remove active from buttons
-                document.querySelectorAll('.tab-btn').forEach(b => {
-                    b.classList.remove('active');
-                });
-                
-                // Show selected tab
-                document.getElementById(tabName).classList.add('active');
-                btn.classList.add('active');
-                
-                // Re-init drums if timer tab is opened
-                if (tabName === 'timer') {
-                    setTimeout(() => {
-                        updateDrumHighlight();
-                    }, 100);
-                }
-            });
-        });
-    </script>
+    <!-- Quote Mini -->
+    <div class="section-title">Цитата дня</div>
+    <div class="quote-card card" onclick="navigate('pageQuotes')" style="cursor:pointer">
+      <div class="quote-text" id="quoteText">Загрузка...</div>
+      <div class="quote-author" id="quoteAuthor"></div>
+    </div>
+
+  </section>
+
+  <!-- ── ALARMS PAGE ── -->
+  <section class="page" id="pageAlarms">
+    <div class="section-title">Мои будильники</div>
+    <div id="alarmList"></div>
+  </section>
+
+  <!-- ── TIMER PAGE ── -->
+  <section class="page" id="pageTimer">
+    <div class="tabs">
+      <button class="tab-btn active" id="tabTimer">⏱ Таймер</button>
+      <button class="tab-btn" id="tabStopwatch">⏲ Секундомер</button>
+    </div>
+
+    <!-- Timer Section -->
+    <div id="timerSection">
+      <div class="card" style="padding:20px 16px">
+        <!-- Drum picker -->
+        <div class="timer-drums" id="drumSection">
+          <!-- Hours -->
+          <div>
+            <div class="drum-wrapper" id="drumH">
+              <div class="drum-list"></div>
+              <div class="drum-highlight"></div>
+            </div>
+            <div class="drum-label">Ч</div>
+          </div>
+          <div class="drum-separator">:</div>
+          <!-- Minutes -->
+          <div>
+            <div class="drum-wrapper" id="drumM">
+              <div class="drum-list"></div>
+              <div class="drum-highlight"></div>
+            </div>
+            <div class="drum-label">М</div>
+          </div>
+          <div class="drum-separator">:</div>
+          <!-- Seconds -->
+          <div>
+            <div class="drum-wrapper" id="drumS">
+              <div class="drum-list"></div>
+              <div class="drum-highlight"></div>
+            </div>
+            <div class="drum-label">С</div>
+          </div>
+        </div>
+
+        <!-- Countdown display -->
+        <div class="timer-display" id="timerDisplay">00:00</div>
+
+        <!-- Controls -->
+        <div class="timer-controls">
+          <button class="ctrl-btn" id="timerResetBtn" title="Сброс">↺</button>
+          <button class="ctrl-btn primary" id="timerStartBtn" title="Старт">▶</button>
+          <button class="ctrl-btn primary" id="timerPauseBtn" title="Пауза" style="display:none">⏸</button>
+        </div>
+      </div>
+
+      <!-- Volume -->
+      <div class="card card-sm mt-12">
+        <div class="flex-between">
+          <span class="text-sm text-muted">🔊 Громкость</span>
+          <span class="text-sm text-accent" id="volLabel"></span>
+        </div>
+        <div class="volume-row">
+          <span>🔈</span>
+          <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.8" />
+          <span>🔊</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stopwatch Section -->
+    <div id="stopwatchSection" style="display:none">
+      <div class="card" style="padding:20px 16px; text-align:center">
+        <div class="timer-display" id="swDisplay">00:00.00</div>
+        <div class="timer-controls">
+          <button class="ctrl-btn" id="swResetBtn" title="Сброс">↺</button>
+          <button class="ctrl-btn primary" id="swStartBtn" title="Старт">▶</button>
+          <button class="ctrl-btn primary" id="swPauseBtn" title="Стоп" style="display:none">⏸</button>
+          <button class="ctrl-btn" id="swLapBtn" title="Круг">🏁</button>
+        </div>
+      </div>
+      <div class="card mt-12" id="lapListCard" style="padding:12px">
+        <div class="section-title" style="margin:0 0 8px">Круги</div>
+        <div class="lap-list" id="lapList"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── TASKS PAGE ── -->
+  <section class="page" id="pageTasks">
+    <div class="section-title">Задачи на сегодня</div>
+
+    <!-- Add Task -->
+    <div class="card card-sm mb-12" style="margin-bottom:12px">
+      <div class="task-add-row">
+        <div class="task-input-wrap">
+          <input class="input-nm" type="text" id="taskInput" placeholder="Новая задача..." maxlength="120" />
+        </div>
+        <button class="btn-primary" id="taskAddBtn" style="width:auto;padding:12px 18px">+</button>
+      </div>
+      <div class="flex-row mt-8" style="gap:8px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--text2)">
+          <input type="checkbox" id="taskBdayCheck" style="accent-color:var(--accent4)" />
+          🎂 День рождения
+        </label>
+      </div>
+    </div>
+
+    <!-- Progress -->
+    <div class="tasks-progress">
+      <div class="progress-bar-wrap">
+        <div class="progress-bar-fill" id="taskProgressFill" style="width:0%"></div>
+      </div>
+      <span class="progress-label" id="taskProgressLabel">0/0</span>
+    </div>
+
+    <!-- List -->
+    <div id="taskList"></div>
+  </section>
+
+  <!-- ── WEATHER PAGE ── -->
+  <section class="page" id="pageWeather">
+    <div class="section-title">Погода сейчас</div>
+
+    <div class="card" style="text-align:center; padding:28px 20px">
+      <div style="font-size:72px;line-height:1;margin-bottom:12px" id="weatherFullIcon">🌤️</div>
+      <div class="weather-temp" style="font-size:52px;font-weight:800" id="weatherFullTemp">--°C</div>
+      <div style="font-size:16px;color:var(--text2);margin-top:6px" id="weatherFullDesc">Загрузка...</div>
+    </div>
+
+    <div class="weather-details-grid">
+      <div class="weather-detail-item">
+        <div class="weather-detail-label">💧 Влажность</div>
+        <div class="weather-detail-val" id="weatherHumidity">--%</div>
+      </div>
+      <div class="weather-detail-item">
+        <div class="weather-detail-label">💨 Ветер</div>
+        <div class="weather-detail-val" id="weatherWind">-- м/с</div>
+      </div>
+      <div class="weather-detail-item">
+        <div class="weather-detail-label">🌡 Давление</div>
+        <div class="weather-detail-val" id="weatherPressure">-- мм</div>
+      </div>
+      <div class="weather-detail-item">
+        <div class="weather-detail-label">📍 Источник</div>
+        <div class="weather-detail-val" style="font-size:12px">Open-Meteo</div>
+      </div>
+    </div>
+
+    <div class="weather-advice card mt-12" id="weatherAdvice">🌈 Загрузка совета...</div>
+
+    <div style="margin-top:14px;text-align:center">
+      <button class="btn-secondary" id="weatherRefreshBtn">🔄 Обновить погоду</button>
+    </div>
+  </section>
+
+  <!-- ── SLEEP PAGE ── -->
+  <section class="page" id="pageSleep">
+    <div class="section-title">Качество сна</div>
+
+    <div class="card" style="text-align:center;padding:24px 20px">
+      <div style="font-size:32px;margin-bottom:8px">😴</div>
+      <div style="font-size:15px;color:var(--text2);margin-bottom:16px">Оцените прошедшую ночь</div>
+      <div class="stars-row" id="sleepPageStars">
+        <button class="star-btn">⭐</button>
+        <button class="star-btn">⭐</button>
+        <button class="star-btn">⭐</button>
+        <button class="star-btn">⭐</button>
+        <button class="star-btn">⭐</button>
+      </div>
+    </div>
+
+    <div class="section-title">История за 7 дней</div>
+    <div class="card">
+      <div class="sleep-chart">
+        <div class="sleep-chart-bars" id="sleepBars"></div>
+      </div>
+      <div class="sleep-avg-display">
+        <div class="sleep-avg-val" id="sleepAvg"><span>—</span></div>
+        <div class="sleep-avg-label">средняя оценка</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── QUOTES PAGE ── -->
+  <section class="page" id="pageQuotes">
+    <div class="section-title">Категория</div>
+    <div class="categories-row">
+      <button class="cat-btn active" data-cat="all">✨ Все</button>
+      <button class="cat-btn" data-cat="business">💼 Бизнес</button>
+      <button class="cat-btn" data-cat="sport">🏆 Спорт</button>
+      <button class="cat-btn" data-cat="creative">🎨 Творчество</button>
+      <button class="cat-btn" data-cat="morning">🌅 Утро</button>
+    </div>
+
+    <div class="quote-card card" style="margin-top:4px">
+      <div class="quote-text" id="quoteText">Загрузка...</div>
+      <div class="quote-author" id="quoteAuthor"></div>
+      <div class="quote-category" id="quoteCategory"></div>
+    </div>
+
+    <div style="text-align:center;margin-top:16px">
+      <button class="btn-primary" id="nextQuoteBtn" style="width:auto;padding:12px 32px">Следующая ✨</button>
+    </div>
+  </section>
+
+  <!-- ── MELODY PAGE ── -->
+  <section class="page" id="pageMelody">
+    <div class="section-title">Выберите мелодию</div>
+    <div class="melody-grid" id="melodyGrid"></div>
+
+    <div class="section-title" style="margin-top:20px">Своя мелодия</div>
+    <button class="upload-btn" id="melodyUploadBtn">
+      <span style="font-size:22px">🎵</span>
+      Загрузить MP3
+    </button>
+    <input type="file" id="melodyUploadInput" accept="audio/*" style="display:none" />
+
+    <div class="section-title" style="margin-top:20px">Громкость</div>
+    <div class="card card-sm">
+      <div class="volume-row">
+        <span>🔈</span>
+        <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="0.8" />
+        <span>🔊</span>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ══════════════════════════════
+     BOTTOM NAV
+══════════════════════════════ -->
+<nav class="bottom-nav">
+  <button class="nav-item active" data-page="pageHome">
+    <span class="nav-icon">🏠</span>
+    <span>Главная</span>
+  </button>
+  <button class="nav-item" data-page="pageAlarms">
+    <span class="nav-icon">⏰</span>
+    <span>Будильник</span>
+  </button>
+  <button class="nav-item" data-page="pageTimer">
+    <span class="nav-icon">⏱</span>
+    <span>Таймер</span>
+  </button>
+  <button class="nav-item" data-page="pageTasks">
+    <span class="nav-icon">✅</span>
+    <span>Задачи</span>
+  </button>
+  <button class="nav-item" data-page="pageMelody">
+    <span class="nav-icon">🎵</span>
+    <span>Мелодии</span>
+  </button>
+</nav>
+
+<!-- ══════════════════════════════
+     FAB — ADD ALARM
+══════════════════════════════ -->
+<button class="fab" id="alarmFab" title="Добавить будильник" style="display:none">+</button>
+
+<!-- ══════════════════════════════
+     ALARM MODAL
+══════════════════════════════ -->
+<div class="modal-overlay" id="alarmModal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Новый будильник</div>
+
+    <div class="form-group">
+      <label class="form-label">Время</label>
+      <input class="input-time" type="time" id="alarmTimeInput" />
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Название</label>
+      <input class="input-nm" type="text" id="alarmLabelInput" placeholder="Подъём, работа..." maxlength="40" />
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Дни недели</label>
+      <div class="days-picker">
+        <button class="day-btn selected" data-day="0">Пн</button>
+        <button class="day-btn selected" data-day="1">Вт</button>
+        <button class="day-btn selected" data-day="2">Ср</button>
+        <button class="day-btn selected" data-day="3">Чт</button>
+        <button class="day-btn selected" data-day="4">Пт</button>
+        <button class="day-btn" data-day="5">Сб</button>
+        <button class="day-btn" data-day="6">Вс</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Тип будильника</label>
+      <div class="type-btns">
+        <button class="type-btn selected" data-type="classic">⏰ Обычный</button>
+        <button class="type-btn" data-type="smart">🤖 Умный (с ассистентом)</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Мелодия</label>
+      <select class="input-nm" id="alarmMelodySelect"></select>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn-danger" id="alarmDeleteBtn" style="display:none">🗑 Удалить</button>
+      <button class="btn-secondary" onclick="closeModal('alarmModal')">Отмена</button>
+      <button class="btn-primary" id="alarmSaveBtn" style="flex:1">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════
+     ALARM RING FULLSCREEN
+══════════════════════════════ -->
+<div id="alarmRingScreen">
+  <div class="ring-pulse">⏰</div>
+  <div class="ring-time" id="ringTime">07:00</div>
+  <div class="ring-label" id="ringLabel">Пора просыпаться!</div>
+  <div class="ring-btns">
+    <button class="ring-snooze" id="ringSnoozeBtn">💤 +5 мин</button>
+    <button class="ring-stop" id="ringStopBtn">Выключить</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════
+     SMART ASSISTANT PANEL
+══════════════════════════════ -->
+<div id="assistantPanel">
+  <div class="assistant-avatar">🤖</div>
+  <div class="assistant-speaking-indicator">
+    <div class="speaking-dot"></div>
+    <div class="speaking-dot"></div>
+    <div class="speaking-dot"></div>
+  </div>
+  <div class="assistant-text" id="assistantText">Готовлю утренний брифинг...</div>
+  <button class="btn-secondary" id="assistantCloseBtn" style="margin-top:8px">✕ Закрыть</button>
+</div>
+
+<!-- ══════════════════════════════
+     SLEEP RATING PROMPT
+══════════════════════════════ -->
+<div id="sleepRatingPrompt">
+  <div class="sleep-prompt-card">
+    <div class="sleep-prompt-title">😴 Как вы спали?</div>
+    <div class="sleep-prompt-sub">Оцените качество сна прошедшей ночи</div>
+    <div class="stars-row" id="sleepPromptStars">
+      <button class="star-btn">⭐</button>
+      <button class="star-btn">⭐</button>
+      <button class="star-btn">⭐</button>
+      <button class="star-btn">⭐</button>
+      <button class="star-btn">⭐</button>
+    </div>
+    <div style="text-align:center;margin-top:14px">
+      <button class="btn-secondary" id="sleepSkipBtn">Пропустить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════
+     PWA INSTALL BAR
+══════════════════════════════ -->
+<div id="installBar">
+  <span class="install-text">📲 Установить Ailarm на телефон</span>
+  <button class="install-btn" id="installPwaBtn">Установить</button>
+  <button class="install-dismiss" id="installDismissBtn">✕</button>
+</div>
+
+<!-- ══════════════════════════════
+     TOAST CONTAINER
+══════════════════════════════ -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ══════════════════════════════
+     SCRIPTS
+══════════════════════════════ -->
+<script src="script.js"></script>
+
+<script>
+// Show FAB only on alarms page
+document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const fab = document.getElementById('alarmFab');
+    fab.style.display = btn.dataset.page === 'pageAlarms' ? 'flex' : 'none';
+  });
+});
+
+// Home page task preview (top 3)
+function refreshHomePreview() {
+  const prev = document.getElementById('taskListPreview');
+  if (!prev) return;
+  const pending = (window.State?.tasks || []).filter(t => !t.done).slice(0, 3);
+  if (!pending.length) {
+    prev.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:4px 0">Все задачи выполнены 🎉</div>';
+    return;
+  }
+  prev.innerHTML = pending.map(t =>
+    `<div style="font-size:13px;padding:4px 0;color:var(--text2);display:flex;gap:6px;align-items:center">
+      <span style="color:var(--accent)">○</span> ${t.text}
+    </div>`
+  ).join('') + (window.State?.tasks.filter(t=>!t.done).length > 3
+    ? `<div style="font-size:11px;color:var(--text3);margin-top:4px">+${window.State.tasks.filter(t=>!t.done).length - 3} ещё...</div>` : '');
+}
+
+// Refresh preview on task changes
+const _origRender = window.renderTasks;
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(refreshHomePreview, 200);
+  setInterval(refreshHomePreview, 2000);
+  // Home quote
+  setTimeout(() => {
+    if (window.renderQuote) window.renderQuote();
+  }, 100);
+});
+</script>
+
 </body>
 </html>
