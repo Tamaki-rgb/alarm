@@ -1,0 +1,88 @@
+name: Build Ailarm APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Bubblewrap
+        run: npm install -g @bubblewrap/cli
+
+      - name: Init TWA
+        run: |
+          bubblewrap init \
+            --manifest https://Tamaki-rgb.github.io/ailarm/manifest.json \
+            --directory ./twa-build
+        continue-on-error: true
+
+      - name: Copy twa-manifest if needed
+        run: |
+          mkdir -p ./twa-build
+          if [ ! -f ./twa-build/twa-manifest.json ]; then
+            cp twa-manifest.json ./twa-build/twa-manifest.json
+          fi
+
+      - name: Generate Keystore
+        run: |
+          keytool -genkey -v \
+            -keystore ./twa-build/android.keystore \
+            -alias ailarm \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass ailarm123 \
+            -keypass ailarm123 \
+            -dname "CN=Ailarm, OU=App, O=Ailarm, L=City, S=State, C=US"
+
+      - name: Build APK
+        working-directory: ./twa-build
+        run: |
+          bubblewrap build \
+            --skipPwaValidation
+
+      - name: Locate APK
+        run: |
+          find . -name "*.apk" -exec cp {} ./ailarm.apk \;
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ailarm-apk
+          path: ailarm.apk
+          retention-days: 30
+
+      - name: Create Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Ailarm v1.0.${{ github.run_number }}
+          body: |
+            Ailarm — умный будильник. Скачай ailarm.apk и установи на Android.
+          files: ailarm.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
