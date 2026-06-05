@@ -47,6 +47,8 @@ const Store = {
       localStorage.setItem('ailarm_volume',    State.volume);
       localStorage.setItem('ailarm_custommel', JSON.stringify(State.customMelodies));
       localStorage.setItem('ailarm_quotecat',  State.quoteCategory);
+      // FIX #1: mirror alarms to IDB so Service Worker can read them
+      IDB.set('alarms', State.alarms).catch(() => {});
     } catch(e) { console.warn('Store.save', e); }
   },
   load() {
@@ -64,12 +66,65 @@ const Store = {
 };
 
 /* ══════════════════════════════
+   IDB BRIDGE — sync alarms to SW
+   SW cannot read localStorage, so every
+   alarm save also writes to IndexedDB
+   so the background alarm check can read it.
+══════════════════════════════ */
+const IDB = (() => {
+  let _db = null;
+
+  function open() {
+    if (_db) return Promise.resolve(_db);
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('ailarm_sw', 1);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('kv'))
+          db.createObjectStore('kv', { keyPath: 'k' });
+      };
+      req.onsuccess = e => { _db = e.target.result; resolve(_db); };
+      req.onerror   = e => reject(e.target.error);
+    });
+  }
+
+  async function set(key, value) {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const tx = db.transaction('kv', 'readwrite');
+      tx.objectStore('kv').put({ k: key, v: value });
+      tx.oncomplete = () => res();
+      tx.onerror    = () => rej(tx.error);
+    });
+  }
+
+  async function get(key) {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const tx  = db.transaction('kv', 'readonly');
+      const req = tx.objectStore('kv').get(key);
+      req.onsuccess = () => res(req.result?.v ?? null);
+      req.onerror   = () => rej(req.error);
+    });
+  }
+
+  return { set, get };
+})();
+
+/* ══════════════════════════════
    AUDIO ENGINE
+   FIX #4: AudioContext must be created
+   (or resumed) inside a user gesture.
+   We create it lazily and maintain an
+   "unlocked" flag. A silent buffer is
+   played on the very first interaction
+   to satisfy autoplay policy on iOS/Android.
 ══════════════════════════════ */
 const Audio = (() => {
   let ctx = null;
   let gainNode = null;
   let activeNodes = [];
+  let unlocked = false;
 
   function getCtx() {
     if (!ctx) {
@@ -78,6 +133,24 @@ const Audio = (() => {
       gainNode.connect(ctx.destination);
     }
     return ctx;
+  }
+
+  /* Called once on first click/touchstart anywhere in the page.
+     Plays a 0-duration silent buffer — enough to satisfy the
+     browser autoplay policy and leave the context in "running". */
+  function unlock() {
+    if (unlocked) return;
+    try {
+      const c = getCtx();
+      if (c.state === 'suspended') c.resume();
+      // Silent buffer trick required on iOS Safari
+      const buf = c.createBuffer(1, 1, 22050);
+      const src = c.createBufferSource();
+      src.buffer = buf;
+      src.connect(c.destination);
+      src.start(0);
+      unlocked = true;
+    } catch(e) {}
   }
 
   function stop() {
@@ -171,9 +244,11 @@ const Audio = (() => {
     if (gainNode) gainNode.gain.setValueAtTime(v, getCtx().currentTime);
   }
 
-  function resume() { if (ctx && ctx.state === 'suspended') ctx.resume(); }
+  function resume() {
+    if (ctx && ctx.state === 'suspended') ctx.resume();
+  }
 
-  return { stop, playMelody, playCustom, playBeep, setVolume, resume, MELODIES };
+  return { stop, playMelody, playCustom, playBeep, setVolume, resume, unlock, MELODIES };
 })();
 
 /* ══════════════════════════════
@@ -463,11 +538,28 @@ function snoozeAlarm() {
   Audio.stop();
   if (navigator.vibrate) navigator.vibrate(0);
   document.getElementById('alarmRingScreen').classList.remove('visible');
+
+  // FIX #2: capture the exact alarm object BEFORE clearing State.currentAlarmId
+  // so the timeout re-triggers the right alarm, not just "any active one"
+  const snoozedAlarmId = State.currentAlarmId;
+  const snoozedAlarm   = State.alarms.find(a => a.id === snoozedAlarmId);
   State.currentAlarmId = null;
-  showToast('⏰ Повтор через 5 минут', 'info');
+
+  if (!snoozedAlarm) return; // safety guard
+
+  // Exit fullscreen during snooze
+  try { document.exitFullscreen?.(); } catch(e) {}
+
+  showToast('💤 Повтор через 5 минут', 'info');
+
+  // Clear any previous snooze timer
+  if (State.snoozeTimeout) { clearTimeout(State.snoozeTimeout); State.snoozeTimeout = null; }
+
   State.snoozeTimeout = setTimeout(() => {
-    const alarm = State.alarms.find(a => a.active);
-    if (alarm) triggerAlarm(alarm);
+    State.snoozeTimeout = null;
+    // Re-fetch from current State in case user edited it during snooze
+    const alarm = State.alarms.find(a => a.id === snoozedAlarmId);
+    if (alarm && alarm.active) triggerAlarm(alarm);
   }, 5 * 60 * 1000);
 }
 
@@ -602,13 +694,12 @@ function renderTasks() {
 }
 
 function updateTaskProgress() {
-  const done = State.tasks.filter(t => t.done).length;
+  const done  = State.tasks.filter(t => t.done).length;
   const total = State.tasks.length;
-  const pct = total ? Math.round((done/total)*100) : 0;
-  const fill = document.getElementById('taskProgressFill');
-  const label = document.getElementById('taskProgressLabel');
-  if (fill) fill.style.width = pct + '%';
-  if (label) label.textContent = `${done}/${total}`;
+  const pct   = total ? Math.round((done / total) * 100) : 0;
+  // FIX: progress bar ID is duplicated on home + tasks pages — update all
+  document.querySelectorAll('[id="taskProgressFill"]').forEach(el  => { el.style.width = pct + '%'; });
+  document.querySelectorAll('[id="taskProgressLabel"]').forEach(el => { el.textContent = `${done}/${total}`; });
 }
 
 function addTask(text, birthday = false) {
@@ -816,13 +907,24 @@ async function loadWeatherUI() {
 
 /* ══════════════════════════════
    QUOTES UI
+   FIX: index.html has quoteText/quoteAuthor on
+   both home page AND quotes page — duplicate IDs.
+   getElementById only finds the first one, so the
+   second stays empty forever ("infinite loading").
+   Solution: use querySelectorAll('[id=...]') to update
+   every element with that ID in one shot.
 ══════════════════════════════ */
+function setAllById(id, text) {
+  document.querySelectorAll(`[id="${id}"]`).forEach(el => { el.textContent = text; });
+}
+
 function renderQuote() {
   const quotes = getAllQuotes();
+  if (!quotes.length) return;
   const q = quotes[Math.floor(Math.random() * quotes.length)];
-  document.getElementById('quoteText').textContent = q.text;
-  document.getElementById('quoteAuthor').textContent = '— ' + q.author;
-  document.getElementById('quoteCategory').textContent = State.quoteCategory === 'all' ? '✨ Все категории' : State.quoteCategory;
+  setAllById('quoteText',     q.text);
+  setAllById('quoteAuthor',   '— ' + q.author);
+  setAllById('quoteCategory', State.quoteCategory === 'all' ? '✨ Все категории' : State.quoteCategory);
 }
 
 function setQuoteCategory(cat) {
@@ -956,11 +1058,13 @@ function resetTimer() {
 function timerDone() {
   clearInterval(State.timerInterval);
   State.timerRunning = false;
+  State.timerEnd = null;
   if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
   Audio.resume();
   Audio.playMelody('chime', State.volume);
   setTimeout(() => Audio.stop(), 4000);
   showToast('⏰ Время вышло!', 'success');
+  // FIX: resetTimer was not restoring drum section when timer expired naturally
   resetTimer();
 }
 
@@ -1090,11 +1194,62 @@ function installPWA() {
    SERVICE WORKER
 ══════════════════════════════ */
 function registerSW() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./service-worker.js').then(reg => {
-      console.log('SW registered:', reg.scope);
-    }).catch(e => console.log('SW error:', e));
-  }
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('./service-worker.js').then(async reg => {
+    console.log('SW registered:', reg.scope);
+
+    // FIX #1a: Periodic Background Sync — fires SW every ~1 min even with screen off
+    if ('periodicSync' in reg) {
+      try {
+        const status = await navigator.permissions.query({ name: 'periodic-background-sync' });
+        if (status.state === 'granted') {
+          await reg.periodicSync.register('ailarm-check', { minInterval: 60 * 1000 });
+          console.log('Periodic Background Sync registered');
+        }
+      } catch(e) { console.log('PBS not available:', e.message); }
+    }
+
+    // FIX #1b: fallback one-shot Background Sync when SW activates
+    if ('sync' in reg) {
+      try { await reg.sync.register('ailarm-check'); } catch(e) {}
+    }
+
+  }).catch(e => console.log('SW error:', e));
+
+  // FIX #1c: listen for messages from SW (alarm fired in background)
+  navigator.serviceWorker.addEventListener('message', event => {
+    const { type, alarmId } = event.data || {};
+    if (type === 'TRIGGER_ALARM') {
+      const alarm = State.alarms.find(a => a.id === alarmId);
+      if (alarm && !State.currentAlarmId) triggerAlarm(alarm);
+    }
+    if (type === 'STOP_ALARM') {
+      if (State.currentAlarmId) stopAlarm(true);
+    }
+    if (type === 'SNOOZE_ALARM') {
+      if (State.currentAlarmId) snoozeAlarm();
+    }
+  });
+
+  // FIX #1d: check for pending stop/snooze actions stored by SW while app was closed
+  IDB.get('pending_stop').then(alarmId => {
+    if (!alarmId) return;
+    IDB.set('pending_stop', null);
+    // Just clear — alarm already shown by notification
+  }).catch(() => {});
+
+  IDB.get('pending_snooze').then(data => {
+    if (!data) return;
+    IDB.set('pending_snooze', null);
+    if (data.until > Date.now()) {
+      const delay = data.until - Date.now();
+      const alarm = State.alarms.find(a => a.id === data.alarmId);
+      if (alarm) {
+        State.snoozeTimeout = setTimeout(() => triggerAlarm(alarm), delay);
+        showToast(`💤 Будильник отложен на ${Math.ceil(delay/60000)} мин`, 'info');
+      }
+    }
+  }).catch(() => {});
 }
 
 /* ══════════════════════════════
@@ -1105,23 +1260,43 @@ document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   startClock();
   registerSW();
+
+  // FIX #4: Unlock AudioContext on the very first user interaction.
+  // This satisfies the browser autoplay policy on iOS Safari and Android Chrome
+  // so the alarm sound plays without requiring an extra tap.
+  const unlockOnce = () => {
+    Audio.unlock();
+    document.removeEventListener('click',      unlockOnce);
+    document.removeEventListener('touchstart', unlockOnce);
+    document.removeEventListener('keydown',    unlockOnce);
+  };
+  document.addEventListener('click',      unlockOnce, { once: true, passive: true });
+  document.addEventListener('touchstart', unlockOnce, { once: true, passive: true });
+  document.addEventListener('keydown',    unlockOnce, { once: true });
   renderAlarms();
   renderTasks();
   renderSleepChart();
+  renderQuote();  // FIX: was called via setTimeout(100) in inline script, often losing the race
 
   // Load weather in background
   loadWeatherUI().catch(() => {});
 
-  // Volume slider
-  const volSlider = document.getElementById('volumeSlider');
-  if (volSlider) {
-    volSlider.value = State.volume;
-    volSlider.addEventListener('input', e => {
+  // Volume slider — wire up ALL volume sliders (duplicated on timer + melody pages)
+  document.querySelectorAll('[id="volumeSlider"]').forEach(slider => {
+    slider.value = State.volume;
+    slider.addEventListener('input', e => {
       State.volume = parseFloat(e.target.value);
+      // Sync the other slider too
+      document.querySelectorAll('[id="volumeSlider"]').forEach(s => { s.value = State.volume; });
       Audio.setVolume(State.volume);
+      // Update label
+      const pct = Math.round(State.volume * 100);
+      document.querySelectorAll('[id="volLabel"]').forEach(el => { el.textContent = pct + '%'; });
       Store.save();
     });
-  }
+  });
+  // Set initial label
+  document.querySelectorAll('[id="volLabel"]').forEach(el => { el.textContent = Math.round(State.volume * 100) + '%'; });
 
   // Navigation
   document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
