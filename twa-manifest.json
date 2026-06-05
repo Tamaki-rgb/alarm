@@ -1,0 +1,40 @@
+{
+  "packageId": "com.ailarm.app",
+  "host": "Tamaki-rgb.github.io",
+  "startUrl": "/ailarm/",
+  "name": "Ailarm",
+  "launcherName": "Ailarm",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "themeColor": "#7c3aed",
+  "navigationColor": "#0d0b1a",
+  "backgroundColor": "#0d0b1a",
+  "enableNotifications": true,
+  "versions": {
+    "android": 1,
+    "name": "1.0.0"
+  },
+  "iconUrl": "https://Tamaki-rgb.github.io/ailarm/icon-512.png",
+  "maskableIconUrl": "https://Tamaki-rgb.github.io/ailarm/icon-512.png",
+  "appVersion": "1.0.0",
+  "appVersionCode": 1,
+  "signingKey": {
+    "path": "android.keystore",
+    "alias": "ailarm"
+  },
+  "splashScreenFadeOutDuration": 600,
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://Tamaki-rgb.github.io/ailarm/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {
+    "locationDelegation": { "enabled": true },
+    "playBilling": { "enabled": false }
+  },
+  "alphaDependencies": { "enabled": false },
+  "enableSiteSettingsShortcut": false,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://Tamaki-rgb.github.io/ailarm/",
+  "minSdkVersion": 21,
+  "targetSdkVersion": 34
+}
