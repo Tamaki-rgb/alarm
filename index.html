@@ -455,6 +455,16 @@
      SCRIPTS
 ══════════════════════════════ -->
 <script src="script.js"></script>
+  <script>
+// Регистрация Service Worker
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./service-worker.js')
+            .then(reg => console.log('✅ SW зарегистрирован'))
+            .catch(err => console.log('❌ SW ошибка:', err));
+    });
+}
+</script>
 
 <script>
 // Show FAB only on alarms page
