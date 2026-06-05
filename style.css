@@ -1,1473 +1,915 @@
 /* ═══════════════════════════════════════════════
-   AILARM — script.js
-   Full PWA Logic: Alarms, Timer, Stopwatch,
-   Tasks, Weather, Quotes, Sleep, Assistant
+   AILARM — style.css
+   Neomorphism · Purple-Rose · Adaptive Theme
    ═══════════════════════════════════════════════ */
 
-'use strict';
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@300;400;600;700;900&family=Space+Mono:wght@400;700&display=swap');
 
-/* ══════════════════════════════
-   STATE
-══════════════════════════════ */
-const State = {
-  alarms: [],
-  tasks: [],
-  sleepLog: [],        // [{date, rating}]
-  selectedMelody: 'default',
-  customMelodies: [],  // [{name, dataUrl}]
-  theme: 'auto',       // 'auto'|'dark'|'light'
-  quoteCategory: 'all',
-  timerDrums: { h: 0, m: 0, s: 0 },
-  timerRunning: false,
-  timerEnd: null,
-  timerInterval: null,
-  stopwatchRunning: false,
-  stopwatchStart: null,
-  stopwatchOffset: 0,
-  stopwatchInterval: null,
-  laps: [],
-  weatherData: null,
-  weatherLastFetch: 0,
-  volume: 0.8,
-  currentAlarmId: null,
-  snoozeTimeout: null,
-};
-
-/* ══════════════════════════════
-   PERSIST
-══════════════════════════════ */
-const Store = {
-  save() {
-    try {
-      localStorage.setItem('ailarm_alarms',    JSON.stringify(State.alarms));
-      localStorage.setItem('ailarm_tasks',     JSON.stringify(State.tasks));
-      localStorage.setItem('ailarm_sleep',     JSON.stringify(State.sleepLog));
-      localStorage.setItem('ailarm_melody',    State.selectedMelody);
-      localStorage.setItem('ailarm_theme',     State.theme);
-      localStorage.setItem('ailarm_volume',    State.volume);
-      localStorage.setItem('ailarm_custommel', JSON.stringify(State.customMelodies));
-      localStorage.setItem('ailarm_quotecat',  State.quoteCategory);
-      // FIX #1: mirror alarms to IDB so Service Worker can read them
-      IDB.set('alarms', State.alarms).catch(() => {});
-    } catch(e) { console.warn('Store.save', e); }
-  },
-  load() {
-    try {
-      State.alarms         = JSON.parse(localStorage.getItem('ailarm_alarms')    || '[]');
-      State.tasks          = JSON.parse(localStorage.getItem('ailarm_tasks')     || '[]');
-      State.sleepLog       = JSON.parse(localStorage.getItem('ailarm_sleep')     || '[]');
-      State.selectedMelody = localStorage.getItem('ailarm_melody') || 'default';
-      State.theme          = localStorage.getItem('ailarm_theme')  || 'auto';
-      State.volume         = parseFloat(localStorage.getItem('ailarm_volume') || '0.8');
-      State.customMelodies = JSON.parse(localStorage.getItem('ailarm_custommel') || '[]');
-      State.quoteCategory  = localStorage.getItem('ailarm_quotecat') || 'all';
-    } catch(e) { console.warn('Store.load', e); }
-  }
-};
-
-/* ══════════════════════════════
-   IDB BRIDGE — sync alarms to SW
-   SW cannot read localStorage, so every
-   alarm save also writes to IndexedDB
-   so the background alarm check can read it.
-══════════════════════════════ */
-const IDB = (() => {
-  let _db = null;
-
-  function open() {
-    if (_db) return Promise.resolve(_db);
-    return new Promise((resolve, reject) => {
-      const req = indexedDB.open('ailarm_sw', 1);
-      req.onupgradeneeded = e => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains('kv'))
-          db.createObjectStore('kv', { keyPath: 'k' });
-      };
-      req.onsuccess = e => { _db = e.target.result; resolve(_db); };
-      req.onerror   = e => reject(e.target.error);
-    });
-  }
-
-  async function set(key, value) {
-    const db = await open();
-    return new Promise((res, rej) => {
-      const tx = db.transaction('kv', 'readwrite');
-      tx.objectStore('kv').put({ k: key, v: value });
-      tx.oncomplete = () => res();
-      tx.onerror    = () => rej(tx.error);
-    });
-  }
-
-  async function get(key) {
-    const db = await open();
-    return new Promise((res, rej) => {
-      const tx  = db.transaction('kv', 'readonly');
-      const req = tx.objectStore('kv').get(key);
-      req.onsuccess = () => res(req.result?.v ?? null);
-      req.onerror   = () => rej(req.error);
-    });
-  }
-
-  return { set, get };
-})();
-
-/* ══════════════════════════════
-   AUDIO ENGINE
-   FIX #4: AudioContext must be created
-   (or resumed) inside a user gesture.
-   We create it lazily and maintain an
-   "unlocked" flag. A silent buffer is
-   played on the very first interaction
-   to satisfy autoplay policy on iOS/Android.
-══════════════════════════════ */
-const Audio = (() => {
-  let ctx = null;
-  let gainNode = null;
-  let activeNodes = [];
-  let unlocked = false;
-
-  function getCtx() {
-    if (!ctx) {
-      ctx = new (window.AudioContext || window.webkitAudioContext)();
-      gainNode = ctx.createGain();
-      gainNode.connect(ctx.destination);
-    }
-    return ctx;
-  }
-
-  /* Called once on first click/touchstart anywhere in the page.
-     Plays a 0-duration silent buffer — enough to satisfy the
-     browser autoplay policy and leave the context in "running". */
-  function unlock() {
-    if (unlocked) return;
-    try {
-      const c = getCtx();
-      if (c.state === 'suspended') c.resume();
-      // Silent buffer trick required on iOS Safari
-      const buf = c.createBuffer(1, 1, 22050);
-      const src = c.createBufferSource();
-      src.buffer = buf;
-      src.connect(c.destination);
-      src.start(0);
-      unlocked = true;
-    } catch(e) {}
-  }
-
-  function stop() {
-    activeNodes.forEach(n => { try { n.stop(); } catch(e){} });
-    activeNodes = [];
-  }
-
-  const MELODIES = {
-    default: { name: 'Gentle Rise', icon: '🔔' },
-    chime:   { name: 'Crystal Chime', icon: '🎐' },
-    pulse:   { name: 'Cosmic Pulse', icon: '💫' },
-    nature:  { name: 'Forest Dawn', icon: '🌿' },
-    digital: { name: 'Digital Wave', icon: '📡' },
-  };
-
-  function playMelody(id, volume = 0.8) {
-    stop();
-    const c = getCtx();
-    gainNode.gain.setValueAtTime(volume, c.currentTime);
-
-    const patterns = {
-      default: [
-        [523, 0, 0.3], [659, 0.35, 0.3], [784, 0.7, 0.3],
-        [1047, 1.1, 0.4], [784, 1.6, 0.3], [1047, 2.0, 0.5],
-      ],
-      chime: [
-        [1047, 0, 0.6], [1319, 0.2, 0.6], [1568, 0.4, 0.6],
-        [2093, 0.7, 0.8], [1568, 1.2, 0.5], [2093, 1.8, 0.8],
-      ],
-      pulse: [
-        [200, 0, 0.1], [200, 0.15, 0.1], [400, 0.3, 0.2],
-        [800, 0.55, 0.3], [1600, 0.9, 0.4],
-      ],
-      nature: [
-        [440, 0, 0.8], [494, 0.4, 0.8], [523, 0.8, 0.8],
-        [587, 1.3, 0.8], [659, 1.8, 1.0],
-      ],
-      digital: [
-        [880, 0, 0.15], [880, 0.2, 0.15], [1760, 0.4, 0.3],
-        [880, 0.75, 0.15], [880, 0.95, 0.15], [1760, 1.15, 0.4],
-      ],
-    };
-
-    const loop = (pattern) => {
-      pattern.forEach(([freq, when, dur]) => {
-        const osc = c.createOscillator();
-        const env = c.createGain();
-        osc.connect(env); env.connect(gainNode);
-        osc.frequency.value = freq;
-        osc.type = id === 'pulse' ? 'sawtooth' : id === 'digital' ? 'square' : 'sine';
-        env.gain.setValueAtTime(0, c.currentTime + when);
-        env.gain.linearRampToValueAtTime(0.6, c.currentTime + when + 0.03);
-        env.gain.exponentialRampToValueAtTime(0.001, c.currentTime + when + dur);
-        osc.start(c.currentTime + when);
-        osc.stop(c.currentTime + when + dur + 0.1);
-        activeNodes.push(osc);
-      });
-    };
-
-    const pat = patterns[id] || patterns.default;
-    loop(pat);
-    // Repeat every 2.5s
-    const interval = setInterval(() => {
-      if (activeNodes.length === 0 && !State.currentAlarmId) { clearInterval(interval); return; }
-      loop(pat);
-    }, 2500);
-    activeNodes._loopInterval = interval;
-  }
-
-  function playCustom(dataUrl, volume = 0.8) {
-    stop();
-    const audio = new window.Audio(dataUrl);
-    audio.volume = volume;
-    audio.loop = true;
-    audio.play().catch(() => {});
-    activeNodes._customAudio = audio;
-  }
-
-  function playBeep(freq = 880, dur = 0.15) {
-    const c = getCtx();
-    const osc = c.createOscillator();
-    const env = c.createGain();
-    osc.connect(env); env.connect(gainNode);
-    osc.frequency.value = freq;
-    env.gain.setValueAtTime(0.3, c.currentTime);
-    env.gain.exponentialRampToValueAtTime(0.001, c.currentTime + dur);
-    osc.start(); osc.stop(c.currentTime + dur);
-  }
-
-  function setVolume(v) {
-    if (gainNode) gainNode.gain.setValueAtTime(v, getCtx().currentTime);
-  }
-
-  function resume() {
-    if (ctx && ctx.state === 'suspended') ctx.resume();
-  }
-
-  return { stop, playMelody, playCustom, playBeep, setVolume, resume, unlock, MELODIES };
-})();
-
-/* ══════════════════════════════
-   QUOTES DATA
-══════════════════════════════ */
-const QUOTES = {
-  business: [
-    { text: 'Успех — это не конечная точка, провал — не фатален. Главное — мужество продолжать.', author: 'Уинстон Черчилль' },
-    { text: 'Ваше время ограничено, не тратьте его на чужую жизнь.', author: 'Стив Джобс' },
-    { text: 'Единственный способ делать великую работу — любить то, что делаешь.', author: 'Стив Джобс' },
-    { text: 'Если вы не строите свою мечту, кто-то другой наймёт вас строить свою.', author: 'Тони Гаскинс' },
-    { text: 'Риск — это цена возможности.', author: 'Тём Питерс' },
-  ],
-  sport: [
-    { text: 'Чемпион — это не тот, кто не падает, а тот, кто встаёт.', author: 'Вита Герасимив' },
-    { text: 'Боль временна. Сдаться — навсегда.', author: 'Лэнс Армстронг' },
-    { text: 'Всё невозможное становится возможным, когда веришь.', author: 'Мухаммед Али' },
-    { text: 'Успех — это 99% пота и 1% таланта.', author: 'Томас Эдисон' },
-    { text: 'Каждое утро ты конкурируешь с тем, кем был вчера.', author: 'Аноним' },
-  ],
-  creative: [
-    { text: 'Творчество — это разум, который веселится.', author: 'Альберт Эйнштейн' },
-    { text: 'Воображение важнее знания.', author: 'Альберт Эйнштейн' },
-    { text: 'Каждый художник вначале был любителем.', author: 'Ральф Эмерсон' },
-    { text: 'Искусство — это ложь, которая помогает нам понять правду.', author: 'Пабло Пикассо' },
-    { text: 'Создавай то, что ты хотел бы видеть в мире.', author: 'Аноним' },
-  ],
-  morning: [
-    { text: 'Каждое утро — это второй шанс стать лучше.', author: 'Аноним' },
-    { text: 'Утро — это обещание нового начала.', author: 'Аноним' },
-    { text: 'Победи утро — победишь день.', author: 'Робин Шарма' },
-    { text: 'Ты встал раньше большинства. Это уже победа.', author: 'Аноним' },
-    { text: 'Великие дела начинаются с маленьких утренних решений.', author: 'Аноним' },
-  ],
-};
-
-/* ══════════════════════════════
-   WEATHER
-══════════════════════════════ */
-const Weather = {
-  icons: {
-    'Clear': '☀️', 'Clouds': '☁️', 'Rain': '🌧️',
-    'Drizzle': '🌦️', 'Thunderstorm': '⛈️', 'Snow': '❄️',
-    'Mist': '🌫️', 'Fog': '🌫️', 'Haze': '🌫️', 'default': '🌤️',
-  },
-  advice(data) {
-    if (!data) return '';
-    const t = data.temp, w = data.wind, h = data.humidity, main = data.main;
-    if (main === 'Rain' || main === 'Drizzle') return '☔ Возьмите зонт сегодня!';
-    if (main === 'Snow') return '🧣 Оденьтесь теплее, на улице снег';
-    if (main === 'Thunderstorm') return '⚡ Лучше остаться дома, гроза!';
-    if (t > 30) return '🥵 Очень жарко — пейте больше воды';
-    if (t > 22) return '😎 Отличная погода для прогулки!';
-    if (t < 0)  return '🧤 Морозно — надевайте перчатки';
-    if (t < 10) return '🧥 Прохладно, возьмите куртку';
-    if (w > 10) return '💨 Ветрено — возможно, закройте окна';
-    if (h > 80) return '💧 Высокая влажность, может быть душно';
-    return '🌈 Хороший день — наслаждайтесь!';
-  },
-  async fetch() {
-    const now = Date.now();
-    if (State.weatherData && now - State.weatherLastFetch < 15 * 60 * 1000) {
-      return State.weatherData;
-    }
-    try {
-      // Use open-meteo (no API key needed)
-      const pos = await new Promise((res, rej) =>
-        navigator.geolocation.getCurrentPosition(res, rej, { timeout: 5000 })
-      ).catch(() => null);
-
-      const lat = pos?.coords?.latitude  || 41.2995;
-      const lon = pos?.coords?.longitude || 69.2401;
-
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,surface_pressure&timezone=auto`;
-      const r = await fetch(url);
-      const j = await r.json();
-      const c = j.current;
-
-      // Map weather_code to description
-      const wc = c.weather_code;
-      let main = 'Clear', desc = 'Ясно', icon = '☀️';
-      if (wc >= 0 && wc <= 3)   { main='Clear';  desc='Ясно';          icon='☀️'; }
-      if (wc >= 4 && wc <= 49)  { main='Clouds'; desc='Облачно';       icon='☁️'; }
-      if (wc >= 50 && wc <= 69) { main='Drizzle';desc='Морось';        icon='🌦️'; }
-      if (wc >= 70 && wc <= 79) { main='Snow';   desc='Снег';          icon='❄️'; }
-      if (wc >= 80 && wc <= 82) { main='Rain';   desc='Дождь';         icon='🌧️'; }
-      if (wc >= 95)             { main='Thunderstorm'; desc='Гроза';   icon='⛈️'; }
-
-      State.weatherData = {
-        temp: Math.round(c.temperature_2m),
-        humidity: c.relative_humidity_2m,
-        wind: Math.round(c.wind_speed_10m),
-        pressure: Math.round(c.surface_pressure * 0.750062), // hPa → mmHg
-        main, desc, icon,
-      };
-      State.weatherLastFetch = now;
-      return State.weatherData;
-    } catch (e) {
-      // Fallback mock
-      return State.weatherData || { temp: 22, humidity: 60, wind: 5, pressure: 755, main: 'Clear', desc: 'Нет данных', icon: '🌤️' };
-    }
-  }
-};
-
-/* ══════════════════════════════
-   SPEECH
-══════════════════════════════ */
-const Speech = {
-  supported: 'speechSynthesis' in window,
-  speaking: false,
-
-  speak(text, onEnd) {
-    if (!this.supported) { onEnd?.(); return; }
-    window.speechSynthesis.cancel();
-    const utt = new SpeechSynthesisUtterance(text);
-    utt.lang = 'ru-RU';
-    utt.rate = 0.95;
-    utt.pitch = 1.05;
-    utt.volume = 1;
-    this.speaking = true;
-    utt.onend = () => { this.speaking = false; onEnd?.(); };
-    utt.onerror = () => { this.speaking = false; onEnd?.(); };
-    // Pick Russian voice if available
-    const voices = window.speechSynthesis.getVoices();
-    const ruVoice = voices.find(v => v.lang.startsWith('ru'));
-    if (ruVoice) utt.voice = ruVoice;
-    window.speechSynthesis.speak(utt);
-  },
-
-  stop() {
-    window.speechSynthesis.cancel();
-    this.speaking = false;
-  }
-};
-
-/* ══════════════════════════════
-   UTILS
-══════════════════════════════ */
-function pad(n) { return String(n).padStart(2, '0'); }
-function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
-function fmt(ms) {
-  const s = Math.floor(ms / 1000) % 60;
-  const m = Math.floor(ms / 60000) % 60;
-  const h = Math.floor(ms / 3600000);
-  const cs = Math.floor((ms % 1000) / 10);
-  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}.${pad(cs)}`;
-}
-function fmtTimer(totalSec) {
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
-}
-function today() {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+/* ── CSS Variables ── */
+:root {
+  --bg: #1a1626;
+  --bg2: #211c32;
+  --bg3: #261f38;
+  --surface: #221d33;
+  --surface2: #2a2440;
+  --border: rgba(255,255,255,0.06);
+  --text: #f0eaff;
+  --text2: #a89bc2;
+  --text3: #6b5f80;
+  --accent: #9b5de5;
+  --accent2: #f15bb5;
+  --accent3: #00bbf9;
+  --accent4: #fee440;
+  --green: #06d6a0;
+  --red: #ef476f;
+  --shadow-dark: rgba(0,0,0,0.45);
+  --shadow-light: rgba(255,255,255,0.04);
+  --nm-out: -4px -4px 10px var(--shadow-light), 4px 4px 14px var(--shadow-dark);
+  --nm-in: inset -3px -3px 8px var(--shadow-light), inset 3px 3px 10px var(--shadow-dark);
+  --nm-out-sm: -2px -2px 6px var(--shadow-light), 2px 2px 8px var(--shadow-dark);
+  --radius: 20px;
+  --radius-sm: 12px;
+  --radius-xs: 8px;
+  --transition: 0.25s cubic-bezier(0.4,0,0.2,1);
+  --glow-purple: 0 0 20px rgba(155,93,229,0.4);
+  --glow-pink: 0 0 20px rgba(241,91,181,0.4);
+  --font: 'Nunito', sans-serif;
+  --font-mono: 'Space Mono', monospace;
 }
 
-const DAY_NAMES = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
-const DAY_NAMES_FULL = ['Понедельник','Вторник','Среда','Четверг','Пятница','Суббота','Воскресенье'];
-const MONTH_NAMES = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
-
-function greeting() {
-  const h = new Date().getHours();
-  if (h < 5)  return 'Доброй ночи';
-  if (h < 12) return 'Доброе утро';
-  if (h < 18) return 'Добрый день';
-  return 'Добрый вечер';
+[data-theme="light"] {
+  --bg: #eae6f4;
+  --bg2: #e0daf0;
+  --bg3: #d6ceea;
+  --surface: #e8e2f5;
+  --surface2: #ddd7ef;
+  --border: rgba(0,0,0,0.07);
+  --text: #1a1626;
+  --text2: #4a3f66;
+  --text3: #8a7fa0;
+  --shadow-dark: rgba(160,150,190,0.5);
+  --shadow-light: rgba(255,255,255,0.85);
+  --nm-out: -4px -4px 10px var(--shadow-light), 4px 4px 14px var(--shadow-dark);
+  --nm-in: inset -3px -3px 8px var(--shadow-light), inset 3px 3px 10px var(--shadow-dark);
+  --nm-out-sm: -2px -2px 6px var(--shadow-light), 2px 2px 8px var(--shadow-dark);
 }
 
-function hasBirthday(task) {
-  return task.text?.toLowerCase().includes('день рождения') || task.birthday;
+/* ── Reset & Base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 16px; -webkit-tap-highlight-color: transparent; scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+  transition: background var(--transition), color var(--transition);
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 4px; }
+
+/* ══════════════════════════════
+   TOPBAR
+══════════════════════════════ */
+.topbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 20px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(20px);
+}
+
+.topbar-left { display: flex; align-items: center; gap: 10px; }
+
+.app-logo {
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  box-shadow: var(--glow-purple);
+}
+
+.app-title { font-size: 20px; font-weight: 900; letter-spacing: -0.5px; }
+.app-title span { background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+
+.topbar-right { display: flex; align-items: center; gap: 8px; }
+
+.top-time {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  color: var(--text2);
+}
+
+.icon-btn {
+  width: 38px; height: 38px;
+  border: none; cursor: pointer;
+  background: var(--surface);
+  border-radius: var(--radius-xs);
+  box-shadow: var(--nm-out-sm);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 16px;
+  color: var(--text2);
+  transition: all var(--transition);
+}
+.icon-btn:hover { color: var(--accent); box-shadow: var(--nm-in); }
+.icon-btn:active { transform: scale(0.95); }
+
+/* ══════════════════════════════
+   MAIN LAYOUT
+══════════════════════════════ */
+.app-wrapper {
+  padding-top: 66px;
+  padding-bottom: 80px;
+  max-width: 480px;
+  margin: 0 auto;
 }
 
 /* ══════════════════════════════
-   THEME
+   BOTTOM NAV
 ══════════════════════════════ */
-function applyTheme(theme) {
-  const h = new Date().getHours();
-  const auto = h >= 7 && h < 20 ? 'light' : 'dark';
-  const actual = theme === 'auto' ? auto : theme;
-  document.documentElement.setAttribute('data-theme', actual === 'light' ? 'light' : '');
+.bottom-nav {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: space-around;
+  padding: 8px 12px 12px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  backdrop-filter: blur(20px);
 }
 
-function initTheme() {
-  applyTheme(State.theme);
-  // Check every minute for auto theme
-  setInterval(() => { if (State.theme === 'auto') applyTheme('auto'); }, 60000);
+.nav-item {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  cursor: pointer; padding: 6px 14px;
+  border-radius: var(--radius-xs);
+  transition: all var(--transition);
+  border: none; background: transparent;
+  color: var(--text3);
+  font-family: var(--font);
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  min-width: 60px;
+}
+.nav-item .nav-icon { font-size: 20px; transition: transform var(--transition); }
+.nav-item.active { color: var(--accent); }
+.nav-item.active .nav-icon { transform: scale(1.15); filter: drop-shadow(0 0 6px var(--accent)); }
+.nav-item:active { transform: scale(0.95); }
+
+/* ══════════════════════════════
+   PAGES / SECTIONS
+══════════════════════════════ */
+.page { display: none; padding: 16px; }
+.page.active { display: block; animation: fadeIn 0.3s ease; }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.section-title {
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 1.5px;
+  color: var(--text3);
+  margin: 20px 0 10px;
 }
 
 /* ══════════════════════════════
-   CLOCK
+   CARDS / PANELS
 ══════════════════════════════ */
-let clockInterval = null;
-function startClock() {
-  function tick() {
-    const now = new Date();
-    const h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
-    const is12 = false; // 24h
-    const timeStr = `${pad(h)}<span class="clock-colon">:</span>${pad(m)}`;
-    const el = document.getElementById('clockTime');
-    if (el) el.innerHTML = timeStr;
-    const dateEl = document.getElementById('clockDate');
-    if (dateEl) {
-      const dow = DAY_NAMES_FULL[(now.getDay() + 6) % 7];
-      dateEl.textContent = `${dow}, ${now.getDate()} ${MONTH_NAMES[now.getMonth()]} ${now.getFullYear()}`;
-    }
-    const greetEl = document.getElementById('clockGreeting');
-    if (greetEl) greetEl.textContent = greeting() + ' 👋';
-    // Topbar time
-    const topTime = document.getElementById('topTime');
-    if (topTime) topTime.textContent = `${pad(h)}:${pad(m)}`;
-    // Check alarms every second
-    checkAlarms(now);
-  }
-  tick();
-  clockInterval = setInterval(tick, 1000);
+.card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 18px;
+  box-shadow: var(--nm-out);
+  border: 1px solid var(--border);
+  margin-bottom: 12px;
+  transition: box-shadow var(--transition);
+}
+
+.card-sm {
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  box-shadow: var(--nm-out-sm);
+  border: 1px solid var(--border);
 }
 
 /* ══════════════════════════════
-   ALARM ENGINE
+   CLOCK HERO
 ══════════════════════════════ */
-function checkAlarms(now) {
-  if (State.currentAlarmId) return; // already ringing
-  const h = now.getHours(), m = now.getMinutes(), s = now.getSeconds();
-  if (s !== 0) return; // only check on minute boundary
-  const timeStr = `${pad(h)}:${pad(m)}`;
-  const dow = (now.getDay() + 6) % 7; // 0=Mon
-
-  for (const alarm of State.alarms) {
-    if (!alarm.active) continue;
-    if (alarm.time !== timeStr) continue;
-    if (!alarm.days.includes(dow)) continue;
-    triggerAlarm(alarm);
-    break;
-  }
+.clock-hero {
+  text-align: center;
+  padding: 28px 20px 20px;
+  position: relative;
+  overflow: hidden;
 }
 
-function triggerAlarm(alarm) {
-  State.currentAlarmId = alarm.id;
-  Audio.resume();
-
-  // Play melody
-  const mel = alarm.melody || State.selectedMelody;
-  const custom = State.customMelodies.find(c => c.name === mel);
-  if (custom) Audio.playCustom(custom.dataUrl, State.volume);
-  else Audio.playMelody(mel, State.volume);
-
-  // Vibrate
-  if (navigator.vibrate) {
-    navigator.vibrate([500, 200, 500, 200, 500, 200, 1000]);
-  }
-
-  // Fullscreen
-  try { document.documentElement.requestFullscreen?.(); } catch(e){}
-
-  // Show ring screen
-  const rs = document.getElementById('alarmRingScreen');
-  rs.classList.add('visible');
-  document.getElementById('ringTime').textContent = alarm.time;
-  document.getElementById('ringLabel').textContent = alarm.label || (alarm.type === 'smart' ? '🤖 Умный будильник' : '⏰ Будильник');
+.clock-hero::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 0%, rgba(155,93,229,0.15), transparent 70%);
+  pointer-events: none;
 }
 
-function stopAlarm(withAssistant = true) {
-  Audio.stop();
-  if (navigator.vibrate) navigator.vibrate(0);
-  const rs = document.getElementById('alarmRingScreen');
-  rs.classList.remove('visible');
-
-  const alarmId = State.currentAlarmId;
-  const alarm = State.alarms.find(a => a.id === alarmId);
-  State.currentAlarmId = null;
-
-  // Exit fullscreen
-  try { document.exitFullscreen?.(); } catch(e){}
-
-  // Show sleep rating
-  showSleepRatingPrompt(() => {
-    // After rating, smart alarm plays assistant
-    if (alarm?.type === 'smart' && withAssistant) {
-      setTimeout(() => runAssistant(), 400);
-    }
-  });
+.clock-time {
+  font-family: var(--font-mono);
+  font-size: clamp(52px, 18vw, 72px);
+  font-weight: 700;
+  line-height: 1;
+  background: linear-gradient(135deg, var(--text) 0%, var(--accent) 60%, var(--accent2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -2px;
+  filter: drop-shadow(0 0 30px rgba(155,93,229,0.3));
 }
 
-function snoozeAlarm() {
-  Audio.stop();
-  if (navigator.vibrate) navigator.vibrate(0);
-  document.getElementById('alarmRingScreen').classList.remove('visible');
+.clock-ampm {
+  font-size: 20px; font-weight: 700;
+  vertical-align: super;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
 
-  // FIX #2: capture the exact alarm object BEFORE clearing State.currentAlarmId
-  // so the timeout re-triggers the right alarm, not just "any active one"
-  const snoozedAlarmId = State.currentAlarmId;
-  const snoozedAlarm   = State.alarms.find(a => a.id === snoozedAlarmId);
-  State.currentAlarmId = null;
+.clock-date {
+  font-size: 14px; color: var(--text2); font-weight: 600;
+  margin-top: 6px; letter-spacing: 0.3px;
+}
 
-  if (!snoozedAlarm) return; // safety guard
-
-  // Exit fullscreen during snooze
-  try { document.exitFullscreen?.(); } catch(e) {}
-
-  showToast('💤 Повтор через 5 минут', 'info');
-
-  // Clear any previous snooze timer
-  if (State.snoozeTimeout) { clearTimeout(State.snoozeTimeout); State.snoozeTimeout = null; }
-
-  State.snoozeTimeout = setTimeout(() => {
-    State.snoozeTimeout = null;
-    // Re-fetch from current State in case user edited it during snooze
-    const alarm = State.alarms.find(a => a.id === snoozedAlarmId);
-    if (alarm && alarm.active) triggerAlarm(alarm);
-  }, 5 * 60 * 1000);
+.clock-greeting {
+  font-size: 18px; font-weight: 700;
+  margin-top: 14px;
+  background: linear-gradient(135deg, var(--accent2), var(--accent));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
 }
 
 /* ══════════════════════════════
-   SMART ASSISTANT
+   WEATHER MINI
 ══════════════════════════════ */
-async function runAssistant() {
-  const panel = document.getElementById('assistantPanel');
-  const textEl = document.getElementById('assistantText');
-  panel.classList.add('visible');
-
-  const now = new Date();
-  const weather = await Weather.fetch();
-  const pendingTasks = State.tasks.filter(t => !t.done);
-  const birthdays = State.tasks.filter(t => hasBirthday(t) && !t.done);
-  const quotes = getAllQuotes();
-  const quote = quotes[Math.floor(Math.random() * quotes.length)];
-
-  // Build message
-  let msg = `${greeting()}! `;
-  msg += `Сегодня ${now.getDate()} ${MONTH_NAMES[now.getMonth()]}, ${DAY_NAMES_FULL[(now.getDay()+6)%7]}. `;
-  msg += `На улице ${weather.temp}°, ${weather.desc.toLowerCase()}. `;
-  if (weather.main === 'Rain') msg += 'Не забудьте зонт. ';
-  if (pendingTasks.length > 0) {
-    msg += `На сегодня у вас ${pendingTasks.length} ${pluralTasks(pendingTasks.length)}: `;
-    msg += pendingTasks.slice(0, 3).map(t => t.text).join(', ') + '. ';
-  } else {
-    msg += 'Задач на сегодня нет — отличное время для новых дел! ';
-  }
-  if (birthdays.length > 0) {
-    msg += `Кстати, сегодня день рождения у ${birthdays.map(t=>t.text).join(' и ')}! Не забудьте поздравить! `;
-  }
-  msg += `И напоследок: «${quote.text}» — ${quote.author}.`;
-
-  // Display
-  textEl.textContent = msg;
-
-  // Speak
-  Speech.speak(msg, () => {
-    setTimeout(() => closeAssistant(), 1500);
-  });
+.weather-mini {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 18px;
+  cursor: pointer;
 }
+.weather-mini:hover { box-shadow: var(--nm-in); }
 
-function closeAssistant() {
-  Speech.stop();
-  document.getElementById('assistantPanel').classList.remove('visible');
+.weather-icon-big { font-size: 36px; line-height: 1; }
+
+.weather-main { flex: 1; }
+.weather-temp { font-size: 28px; font-weight: 800; font-family: var(--font-mono); }
+.weather-desc { font-size: 13px; color: var(--text2); margin-top: 1px; }
+
+.weather-details-grid {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: 8px; margin-top: 14px;
 }
-
-function pluralTasks(n) {
-  if (n % 10 === 1 && n % 100 !== 11) return 'задача';
-  if ([2,3,4].includes(n%10) && ![12,13,14].includes(n%100)) return 'задачи';
-  return 'задач';
+.weather-detail-item {
+  background: var(--surface2);
+  border-radius: var(--radius-xs);
+  padding: 10px 12px;
+  box-shadow: var(--nm-in);
 }
+.weather-detail-label { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; }
+.weather-detail-val { font-size: 16px; font-weight: 700; margin-top: 3px; }
 
-function getAllQuotes() {
-  if (State.quoteCategory === 'all') {
-    return Object.values(QUOTES).flat();
-  }
-  return QUOTES[State.quoteCategory] || Object.values(QUOTES).flat();
+.weather-advice {
+  margin-top: 12px; padding: 12px 14px;
+  background: linear-gradient(135deg, rgba(155,93,229,0.15), rgba(241,91,181,0.1));
+  border-radius: var(--radius-xs);
+  border-left: 3px solid var(--accent);
+  font-size: 13px; color: var(--text2); font-style: italic;
 }
 
 /* ══════════════════════════════
-   SLEEP RATING
+   ALARMS LIST
 ══════════════════════════════ */
-function showSleepRatingPrompt(cb) {
-  const el = document.getElementById('sleepRatingPrompt');
-  el.classList.add('visible');
-  // Reset stars
-  document.querySelectorAll('#sleepPromptStars .star-btn').forEach(s => s.classList.remove('lit'));
-  el._callback = cb;
+.alarm-item {
+  display: flex; align-items: center; gap: 14px;
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--nm-out);
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: all var(--transition);
+  position: relative; overflow: hidden;
 }
 
-function submitSleepRating(rating) {
-  const entry = { date: today(), rating };
-  // Remove existing today entry
-  State.sleepLog = State.sleepLog.filter(e => e.date !== today());
-  State.sleepLog.push(entry);
-  if (State.sleepLog.length > 30) State.sleepLog = State.sleepLog.slice(-30);
-  Store.save();
-  document.getElementById('sleepRatingPrompt').classList.remove('visible');
-  renderSleepChart();
-  showToast('😴 Оценка сна сохранена', 'success');
-  document.getElementById('sleepRatingPrompt')._callback?.();
+.alarm-item::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--accent), var(--accent2));
+  opacity: 0; transition: opacity var(--transition);
 }
 
-function renderSleepChart() {
-  const container = document.getElementById('sleepBars');
-  if (!container) return;
-  const days = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(); d.setDate(d.getDate() - i);
-    const key = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-    const entry = State.sleepLog.find(e => e.date === key);
-    days.push({ label: DAY_NAMES[(d.getDay()+6)%7], rating: entry?.rating || 0 });
-  }
-  container.innerHTML = days.map(d => {
-    const h = d.rating ? (d.rating / 5) * 72 : 4;
-    const color = d.rating >= 4 ? '#06d6a0' : d.rating >= 3 ? '#9b5de5' : d.rating > 0 ? '#f15bb5' : '#333';
-    return `<div class="sleep-bar-wrap">
-      <div class="sleep-bar-val">${d.rating > 0 ? '⭐'.repeat(d.rating) : '—'}</div>
-      <div class="sleep-bar" style="height:${h}px;background:${color}"></div>
-      <div class="sleep-bar-day">${d.label}</div>
-    </div>`;
-  }).join('');
+.alarm-item.active-alarm::before { opacity: 1; }
+.alarm-item.active-alarm { box-shadow: var(--nm-out), 0 0 0 1px rgba(155,93,229,0.3); }
 
-  const ratings = State.sleepLog.filter(e => e.rating > 0).map(e => e.rating);
-  const avg = ratings.length ? (ratings.reduce((a,b)=>a+b,0)/ratings.length).toFixed(1) : '—';
-  const avgEl = document.getElementById('sleepAvg');
-  if (avgEl) avgEl.innerHTML = `<span>${avg}</span>`;
+.alarm-time-block { flex: 1; }
+.alarm-time { font-family: var(--font-mono); font-size: 28px; font-weight: 700; line-height: 1; }
+.alarm-label { font-size: 12px; color: var(--text2); margin-top: 3px; }
+.alarm-days { display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap; }
+
+.day-badge {
+  font-size: 10px; font-weight: 700;
+  padding: 2px 7px; border-radius: 20px;
+  background: var(--surface2); color: var(--text3);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.day-badge.on {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: white;
+}
+
+.alarm-type-badge {
+  font-size: 10px; padding: 3px 9px;
+  border-radius: 20px; font-weight: 700;
+  background: rgba(155,93,229,0.2); color: var(--accent);
+  border: 1px solid rgba(155,93,229,0.3);
+}
+
+.alarm-toggle { flex-shrink: 0; }
+
+/* Toggle Switch */
+.toggle {
+  position: relative; width: 48px; height: 26px; cursor: pointer;
+}
+.toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+.toggle-track {
+  position: absolute; inset: 0;
+  border-radius: 13px;
+  background: var(--surface2);
+  box-shadow: var(--nm-in);
+  transition: background var(--transition);
+}
+.toggle input:checked ~ .toggle-track {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  box-shadow: var(--glow-purple);
+}
+.toggle-thumb {
+  position: absolute; top: 3px; left: 3px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: white;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  transition: transform var(--transition);
+}
+.toggle input:checked ~ .toggle-track .toggle-thumb { transform: translateX(22px); }
+
+/* ══════════════════════════════
+   ADD ALARM FAB
+══════════════════════════════ */
+.fab {
+  position: fixed; bottom: 86px; right: 20px; z-index: 99;
+  width: 56px; height: 56px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border: none; cursor: pointer; color: white;
+  font-size: 26px; font-weight: 300;
+  box-shadow: 0 4px 20px rgba(155,93,229,0.5);
+  display: flex; align-items: center; justify-content: center;
+  transition: all var(--transition);
+}
+.fab:hover { transform: scale(1.08); box-shadow: 0 6px 28px rgba(155,93,229,0.7); }
+.fab:active { transform: scale(0.95); }
+
+/* ══════════════════════════════
+   MODALS
+══════════════════════════════ */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(8px);
+  display: none; align-items: flex-end; justify-content: center;
+  padding-bottom: 0;
+}
+.modal-overlay.open { display: flex; animation: overlayIn 0.25s ease; }
+
+@keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+
+.modal {
+  background: var(--bg2);
+  border-radius: var(--radius) var(--radius) 0 0;
+  padding: 20px;
+  width: 100%; max-width: 480px;
+  max-height: 90vh; overflow-y: auto;
+  box-shadow: 0 -10px 40px rgba(0,0,0,0.4);
+  animation: slideUp 0.3s cubic-bezier(0.34,1.56,0.64,1);
+}
+
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: none; } }
+
+.modal-handle {
+  width: 36px; height: 4px; border-radius: 2px;
+  background: var(--text3); margin: 0 auto 16px;
+}
+
+.modal-title { font-size: 18px; font-weight: 800; margin-bottom: 18px; }
+
+/* ══════════════════════════════
+   FORM ELEMENTS
+══════════════════════════════ */
+.form-group { margin-bottom: 16px; }
+.form-label { font-size: 12px; color: var(--text3); font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; display: block; }
+
+.input-nm {
+  width: 100%; padding: 12px 16px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--nm-in);
+  color: var(--text); font-family: var(--font); font-size: 15px;
+  outline: none; transition: all var(--transition);
+}
+.input-nm:focus { border-color: rgba(155,93,229,0.5); box-shadow: var(--nm-in), 0 0 0 2px rgba(155,93,229,0.2); }
+
+.input-time {
+  font-family: var(--font-mono); font-size: 32px; font-weight: 700;
+  text-align: center; letter-spacing: 4px;
+  padding: 16px; background: var(--surface2);
+  border-radius: var(--radius); box-shadow: var(--nm-in);
+  border: 1px solid var(--border); color: var(--text);
+  width: 100%; outline: none; transition: all var(--transition);
+}
+.input-time:focus { border-color: rgba(155,93,229,0.5); }
+
+.days-picker { display: flex; gap: 6px; justify-content: space-between; }
+.day-btn {
+  flex: 1; padding: 9px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs); background: var(--surface2);
+  box-shadow: var(--nm-out-sm); color: var(--text2);
+  font-family: var(--font); font-size: 11px; font-weight: 700;
+  cursor: pointer; transition: all var(--transition); text-align: center;
+}
+.day-btn.selected {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: white; box-shadow: var(--glow-purple);
+  border-color: transparent;
+}
+
+.type-btns { display: flex; gap: 8px; }
+.type-btn {
+  flex: 1; padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface2);
+  box-shadow: var(--nm-out-sm); color: var(--text2);
+  font-family: var(--font); font-size: 13px; font-weight: 700;
+  cursor: pointer; transition: all var(--transition); text-align: center;
+}
+.type-btn.selected {
+  background: linear-gradient(135deg, rgba(155,93,229,0.3), rgba(241,91,181,0.2));
+  color: var(--accent); border-color: rgba(155,93,229,0.4);
+  box-shadow: var(--glow-purple);
+}
+
+.btn-primary {
+  width: 100%; padding: 14px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border: none; border-radius: var(--radius-sm);
+  color: white; font-family: var(--font); font-size: 15px; font-weight: 800;
+  cursor: pointer; letter-spacing: 0.5px;
+  box-shadow: 0 4px 20px rgba(155,93,229,0.4);
+  transition: all var(--transition);
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(155,93,229,0.6); }
+.btn-primary:active { transform: translateY(1px); }
+
+.btn-secondary {
+  padding: 10px 20px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); box-shadow: var(--nm-out-sm);
+  color: var(--text2); font-family: var(--font); font-size: 13px; font-weight: 700;
+  cursor: pointer; transition: all var(--transition);
+}
+.btn-secondary:hover { color: var(--text); box-shadow: var(--nm-in); }
+
+.btn-danger {
+  padding: 10px 20px;
+  background: rgba(239,71,111,0.15); border: 1px solid rgba(239,71,111,0.3);
+  border-radius: var(--radius-sm);
+  color: var(--red); font-family: var(--font); font-size: 13px; font-weight: 700;
+  cursor: pointer; transition: all var(--transition);
+}
+.btn-danger:hover { background: rgba(239,71,111,0.25); }
+
+/* ══════════════════════════════
+   TIMER / STOPWATCH
+══════════════════════════════ */
+.timer-display {
+  font-family: var(--font-mono);
+  font-size: clamp(44px, 16vw, 64px);
+  font-weight: 700; text-align: center; line-height: 1;
+  background: linear-gradient(135deg, var(--text), var(--accent));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  padding: 24px 0; letter-spacing: -1px;
+}
+
+.timer-drums { display: flex; align-items: center; justify-content: center; gap: 4px; margin: 16px 0; }
+.drum-separator { font-size: 28px; color: var(--text2); font-weight: 700; line-height: 1; padding: 0 2px; }
+
+.drum-wrapper {
+  position: relative; width: 68px; height: 120px; overflow: hidden;
+  background: var(--surface2); border-radius: var(--radius-sm);
+  box-shadow: var(--nm-in);
+  cursor: ns-resize; user-select: none;
+}
+
+.drum-list {
+  position: absolute; top: 0; left: 0; right: 0;
+  transition: transform 0.15s ease;
+  will-change: transform;
+}
+
+.drum-item {
+  height: 40px; display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 22px; font-weight: 700;
+  color: var(--text3); transition: color 0.1s;
+}
+.drum-item.selected { color: var(--text); font-size: 26px; }
+.drum-item.near { color: var(--text2); font-size: 24px; }
+
+.drum-highlight {
+  position: absolute; top: 50%; left: 0; right: 0;
+  height: 40px; transform: translateY(-50%);
+  background: rgba(155,93,229,0.1);
+  border-top: 1px solid rgba(155,93,229,0.3);
+  border-bottom: 1px solid rgba(155,93,229,0.3);
+  pointer-events: none;
+}
+
+.drum-label {
+  text-align: center; font-size: 10px; font-weight: 700;
+  color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; margin-top: 4px;
+}
+
+.timer-controls { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
+
+.ctrl-btn {
+  width: 60px; height: 60px; border-radius: 50%;
+  border: none; cursor: pointer; font-size: 22px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface); box-shadow: var(--nm-out);
+  color: var(--text2); transition: all var(--transition);
+}
+.ctrl-btn:hover { box-shadow: var(--nm-in); color: var(--accent); }
+.ctrl-btn:active { transform: scale(0.93); }
+.ctrl-btn.primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: white; box-shadow: 0 4px 18px rgba(155,93,229,0.45);
+  width: 70px; height: 70px; font-size: 26px;
+}
+.ctrl-btn.primary:hover { box-shadow: 0 6px 24px rgba(155,93,229,0.7); }
+
+/* Lap list */
+.lap-list { max-height: 200px; overflow-y: auto; margin-top: 12px; }
+.lap-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 12px; border-radius: var(--radius-xs);
+  background: var(--surface2); margin-bottom: 4px;
+  font-family: var(--font-mono); font-size: 13px;
+}
+.lap-num { color: var(--text3); font-size: 11px; }
+.lap-best { color: var(--green); }
+.lap-worst { color: var(--red); }
+
+/* Tabs */
+.tabs { display: flex; gap: 4px; padding: 4px; background: var(--surface2); border-radius: var(--radius-sm); box-shadow: var(--nm-in); margin-bottom: 16px; }
+.tab-btn {
+  flex: 1; padding: 9px; border: none; cursor: pointer;
+  background: transparent; border-radius: var(--radius-xs);
+  color: var(--text2); font-family: var(--font); font-size: 13px; font-weight: 700;
+  transition: all var(--transition);
+}
+.tab-btn.active {
+  background: var(--surface); color: var(--accent);
+  box-shadow: var(--nm-out-sm);
 }
 
 /* ══════════════════════════════
    TASKS
 ══════════════════════════════ */
-function renderTasks() {
-  const list = document.getElementById('taskList');
-  if (!list) return;
-  if (State.tasks.length === 0) {
-    list.innerHTML = `<div class="empty-state"><span class="empty-icon">📝</span>Нет задач на сегодня</div>`;
-    updateTaskProgress();
-    return;
-  }
-  list.innerHTML = State.tasks.map(t => {
-    const bday = hasBirthday(t);
-    return `<div class="task-item ${t.done ? 'done' : ''} ${bday ? 'birthday' : ''}" data-id="${t.id}">
-      <div class="task-check ${t.done ? 'checked' : ''}" onclick="toggleTask('${t.id}')"></div>
-      <span class="task-text">${escHtml(t.text)}</span>
-      <button class="task-del" onclick="deleteTask('${t.id}')" title="Удалить">✕</button>
-    </div>`;
-  }).join('');
-  updateTaskProgress();
+.task-add-row { display: flex; gap: 8px; margin-bottom: 12px; }
+.task-input-wrap { flex: 1; }
+
+.task-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; border-radius: var(--radius-sm);
+  background: var(--surface); box-shadow: var(--nm-out-sm);
+  border: 1px solid var(--border); margin-bottom: 6px;
+  transition: all var(--transition);
+}
+.task-item.done { opacity: 0.5; }
+.task-item.birthday { border-left: 3px solid var(--accent4); }
+.task-item.birthday::before { content: '🎂 '; }
+
+.task-check {
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+  border: 2px solid var(--text3); background: var(--surface2);
+  box-shadow: var(--nm-in); cursor: pointer; transition: all var(--transition);
+  display: flex; align-items: center; justify-content: center;
+}
+.task-check.checked {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border-color: transparent; color: white;
+}
+.task-check.checked::after { content: '✓'; font-size: 12px; font-weight: 900; }
+
+.task-text { flex: 1; font-size: 14px; font-weight: 600; }
+.task-item.done .task-text { text-decoration: line-through; color: var(--text3); }
+
+.task-del { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 16px; padding: 2px; transition: color var(--transition); }
+.task-del:hover { color: var(--red); }
+
+.tasks-progress {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
+}
+.progress-bar-wrap { flex: 1; height: 6px; background: var(--surface2); border-radius: 3px; box-shadow: var(--nm-in); overflow: hidden; }
+.progress-bar-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width 0.5s ease; }
+.progress-label { font-size: 12px; color: var(--text2); font-weight: 700; white-space: nowrap; }
+
+/* ══════════════════════════════
+   SLEEP / RATING
+══════════════════════════════ */
+.stars-row { display: flex; gap: 8px; justify-content: center; margin: 14px 0; }
+.star-btn {
+  font-size: 32px; background: none; border: none; cursor: pointer;
+  transition: all 0.2s; filter: grayscale(1) opacity(0.4);
+  transform: scale(0.85);
+}
+.star-btn.lit {
+  filter: none; transform: scale(1.1);
+  filter: drop-shadow(0 0 8px rgba(254,228,64,0.8));
 }
 
-function updateTaskProgress() {
-  const done  = State.tasks.filter(t => t.done).length;
-  const total = State.tasks.length;
-  const pct   = total ? Math.round((done / total) * 100) : 0;
-  // FIX: progress bar ID is duplicated on home + tasks pages — update all
-  document.querySelectorAll('[id="taskProgressFill"]').forEach(el  => { el.style.width = pct + '%'; });
-  document.querySelectorAll('[id="taskProgressLabel"]').forEach(el => { el.textContent = `${done}/${total}`; });
+.sleep-chart { margin-top: 14px; }
+.sleep-chart-bars { display: flex; align-items: flex-end; gap: 6px; height: 80px; }
+.sleep-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.sleep-bar {
+  width: 100%; border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, var(--accent), var(--accent2));
+  transition: height 0.6s cubic-bezier(0.34,1.56,0.64,1);
+  min-height: 4px;
 }
+.sleep-bar-day { font-size: 10px; color: var(--text3); font-weight: 600; }
+.sleep-bar-val { font-size: 10px; color: var(--text2); font-weight: 700; }
 
-function addTask(text, birthday = false) {
-  if (!text.trim()) return;
-  State.tasks.push({ id: uid(), text: text.trim(), done: false, birthday, created: Date.now() });
-  Store.save();
-  renderTasks();
+.sleep-avg-display {
+  text-align: center; margin-top: 12px; padding: 12px;
+  background: var(--surface2); border-radius: var(--radius-sm); box-shadow: var(--nm-in);
 }
+.sleep-avg-val { font-size: 28px; font-weight: 800; font-family: var(--font-mono); }
+.sleep-avg-val span { background: linear-gradient(135deg, var(--accent4), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.sleep-avg-label { font-size: 12px; color: var(--text3); margin-top: 2px; }
 
-function toggleTask(id) {
-  const t = State.tasks.find(t => t.id === id);
-  if (t) { t.done = !t.done; Store.save(); renderTasks(); Audio.playBeep(t.done ? 1046 : 440, 0.1); }
+/* ══════════════════════════════
+   QUOTES
+══════════════════════════════ */
+.quote-card {
+  text-align: center; padding: 24px 20px;
+  background: linear-gradient(135deg, rgba(155,93,229,0.12), rgba(241,91,181,0.08));
+  border: 1px solid rgba(155,93,229,0.2);
+  position: relative; overflow: hidden;
 }
-
-function deleteTask(id) {
-  State.tasks = State.tasks.filter(t => t.id !== id);
-  Store.save(); renderTasks();
+.quote-card::before {
+  content: '"';
+  position: absolute; top: -10px; left: 10px;
+  font-size: 100px; color: rgba(155,93,229,0.1); font-family: Georgia, serif; line-height: 1;
 }
+.quote-text { font-size: 16px; font-weight: 600; line-height: 1.6; color: var(--text); font-style: italic; position: relative; }
+.quote-author { font-size: 12px; color: var(--accent2); font-weight: 700; margin-top: 10px; letter-spacing: 0.5px; }
+.quote-category { font-size: 10px; color: var(--text3); margin-top: 4px; text-transform: uppercase; letter-spacing: 1px; }
 
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+.categories-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.cat-btn {
+  padding: 6px 14px; border-radius: 20px;
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text2); font-family: var(--font); font-size: 12px; font-weight: 700;
+  cursor: pointer; transition: all var(--transition);
+}
+.cat-btn.active {
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: white; border-color: transparent;
+  box-shadow: var(--glow-purple);
 }
 
 /* ══════════════════════════════
-   ALARMS RENDER
+   MELODIES
 ══════════════════════════════ */
-function renderAlarms() {
-  const list = document.getElementById('alarmList');
-  if (!list) return;
-  if (State.alarms.length === 0) {
-    list.innerHTML = `<div class="empty-state"><span class="empty-icon">⏰</span>Нет будильников.<br>Нажмите + чтобы добавить</div>`;
-    return;
-  }
-  list.innerHTML = State.alarms.map(a => {
-    const dayBadges = DAY_NAMES.map((d, i) =>
-      `<span class="day-badge ${a.days.includes(i) ? 'on' : ''}">${d}</span>`
-    ).join('');
-    return `<div class="alarm-item ${a.active ? 'active-alarm' : ''}" onclick="openEditAlarm('${a.id}')">
-      <div class="alarm-time-block">
-        <div class="alarm-time">${a.time}</div>
-        <div class="alarm-label">${escHtml(a.label || (a.type === 'smart' ? 'Умный' : 'Обычный'))}</div>
-        <div class="alarm-days">${dayBadges}
-          <span class="alarm-type-badge">${a.type === 'smart' ? '🤖 Smart' : '⏰ Classic'}</span>
-        </div>
-      </div>
-      <div class="alarm-toggle" onclick="event.stopPropagation()">
-        <label class="toggle">
-          <input type="checkbox" ${a.active ? 'checked' : ''} onchange="toggleAlarm('${a.id}', this.checked)">
-          <div class="toggle-track"><div class="toggle-thumb"></div></div>
-        </label>
-      </div>
-    </div>`;
-  }).join('');
+.melody-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.melody-item {
+  padding: 14px 12px; border-radius: var(--radius-sm);
+  background: var(--surface); box-shadow: var(--nm-out-sm);
+  border: 1px solid var(--border); cursor: pointer;
+  text-align: center; transition: all var(--transition);
+}
+.melody-item.selected {
+  background: linear-gradient(135deg, rgba(155,93,229,0.2), rgba(241,91,181,0.15));
+  border-color: rgba(155,93,229,0.4);
+  box-shadow: var(--glow-purple);
+}
+.melody-icon { font-size: 24px; margin-bottom: 6px; }
+.melody-name { font-size: 13px; font-weight: 700; }
+.melody-item:active { transform: scale(0.96); }
+
+.upload-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; padding: 14px;
+  border: 2px dashed rgba(155,93,229,0.4);
+  border-radius: var(--radius-sm); background: transparent;
+  color: var(--accent); font-family: var(--font); font-size: 14px; font-weight: 700;
+  cursor: pointer; transition: all var(--transition);
+}
+.upload-btn:hover { background: rgba(155,93,229,0.08); border-color: var(--accent); }
+
+/* ══════════════════════════════
+   ALARM RING FULLSCREEN
+══════════════════════════════ */
+#alarmRingScreen {
+  display: none;
+  position: fixed; inset: 0; z-index: 1000;
+  background: var(--bg);
+  flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 40px 24px;
+}
+#alarmRingScreen.visible { display: flex; }
+
+.ring-pulse {
+  width: 140px; height: 140px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 56px;
+  animation: ringPulse 1s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(155,93,229,0.7);
+  margin-bottom: 28px;
 }
 
-function toggleAlarm(id, active) {
-  const a = State.alarms.find(a => a.id === id);
-  if (a) { a.active = active; Store.save(); renderAlarms(); }
+@keyframes ringPulse {
+  0% { box-shadow: 0 0 0 0 rgba(155,93,229,0.7); transform: scale(1); }
+  50% { box-shadow: 0 0 0 30px rgba(155,93,229,0); transform: scale(1.05); }
+  100% { box-shadow: 0 0 0 0 rgba(155,93,229,0); transform: scale(1); }
 }
 
-function openEditAlarm(id) {
-  const a = State.alarms.find(a => a.id === id);
-  openAlarmModal(a);
+.ring-time { font-family: var(--font-mono); font-size: 56px; font-weight: 700; line-height: 1; margin-bottom: 8px; }
+.ring-label { font-size: 18px; color: var(--text2); margin-bottom: 36px; }
+
+.ring-btns { display: flex; gap: 14px; width: 100%; max-width: 320px; }
+.ring-stop {
+  flex: 2; padding: 16px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  border: none; border-radius: var(--radius); color: white;
+  font-family: var(--font); font-size: 16px; font-weight: 800;
+  cursor: pointer; box-shadow: 0 4px 24px rgba(155,93,229,0.5);
+  transition: all var(--transition);
+}
+.ring-stop:hover { transform: scale(1.02); }
+.ring-snooze {
+  flex: 1; padding: 16px;
+  background: var(--surface); border: 1px solid var(--border);
+  box-shadow: var(--nm-out); border-radius: var(--radius);
+  color: var(--text2); font-family: var(--font); font-size: 14px; font-weight: 700;
+  cursor: pointer; transition: all var(--transition);
 }
 
 /* ══════════════════════════════
-   ALARM MODAL
+   ASSISTANT READOUT
 ══════════════════════════════ */
-let editingAlarmId = null;
+#assistantPanel {
+  display: none;
+  position: fixed; inset: 0; z-index: 900;
+  background: rgba(0,0,0,0.85);
+  backdrop-filter: blur(12px);
+  flex-direction: column; align-items: center; justify-content: center;
+  padding: 32px 24px; text-align: center;
+}
+#assistantPanel.visible { display: flex; animation: fadeIn 0.4s ease; }
 
-function openAlarmModal(alarm = null) {
-  editingAlarmId = alarm?.id || null;
-  const modal = document.getElementById('alarmModal');
-  modal.querySelector('.modal-title').textContent = alarm ? 'Редактировать будильник' : 'Новый будильник';
+.assistant-avatar {
+  width: 80px; height: 80px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 36px; margin-bottom: 20px;
+  animation: avatarPulse 2s ease-in-out infinite;
+}
+@keyframes avatarPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(155,93,229,0.4); } 50% { box-shadow: 0 0 0 16px rgba(155,93,229,0); } }
 
-  // Time
-  const now = new Date();
-  document.getElementById('alarmTimeInput').value = alarm?.time || `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  // Label
-  document.getElementById('alarmLabelInput').value = alarm?.label || '';
-  // Days
-  const selectedDays = alarm?.days || [0,1,2,3,4]; // Weekdays default
-  document.querySelectorAll('.day-btn[data-day]').forEach(btn => {
-    const d = parseInt(btn.dataset.day);
-    btn.classList.toggle('selected', selectedDays.includes(d));
-  });
-  // Type
-  const type = alarm?.type || 'classic';
-  document.querySelectorAll('.type-btn[data-type]').forEach(b => {
-    b.classList.toggle('selected', b.dataset.type === type);
-  });
-  // Melody select
-  populateMelodySelect('alarmMelodySelect', alarm?.melody || State.selectedMelody);
-  // Delete btn
-  document.getElementById('alarmDeleteBtn').style.display = alarm ? 'flex' : 'none';
-  openModal('alarmModal');
+.assistant-text {
+  font-size: 18px; line-height: 1.7; color: var(--text);
+  max-width: 360px; margin-bottom: 28px;
+  font-weight: 500;
 }
 
-function saveAlarm() {
-  const time = document.getElementById('alarmTimeInput').value;
-  if (!time) { showToast('Укажите время', 'error'); return; }
-  const days = [...document.querySelectorAll('.day-btn[data-day].selected')].map(b => parseInt(b.dataset.day));
-  const type = document.querySelector('.type-btn.selected')?.dataset.type || 'classic';
-  const label = document.getElementById('alarmLabelInput').value.trim();
-  const melody = document.getElementById('alarmMelodySelect').value;
-
-  if (editingAlarmId) {
-    const a = State.alarms.find(a => a.id === editingAlarmId);
-    if (a) Object.assign(a, { time, days, type, label, melody });
-  } else {
-    State.alarms.push({ id: uid(), time, days, type, label, melody, active: true });
-  }
-  Store.save(); renderAlarms(); closeModal('alarmModal');
-  showToast('✅ Будильник сохранён', 'success');
+.assistant-speaking-indicator { display: flex; gap: 5px; margin-bottom: 24px; }
+.speaking-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent);
+  animation: speakBounce 0.8s ease-in-out infinite;
 }
+.speaking-dot:nth-child(2) { animation-delay: 0.15s; background: var(--accent2); }
+.speaking-dot:nth-child(3) { animation-delay: 0.3s; }
 
-function deleteAlarm() {
-  if (!editingAlarmId) return;
-  State.alarms = State.alarms.filter(a => a.id !== editingAlarmId);
-  Store.save(); renderAlarms(); closeModal('alarmModal');
-  showToast('🗑 Удалено', 'info');
-}
+@keyframes speakBounce { 0%,100% { transform: scaleY(0.5); opacity: 0.5; } 50% { transform: scaleY(1.5); opacity: 1; } }
 
 /* ══════════════════════════════
-   MELODY
+   SLEEP RATING MODAL
 ══════════════════════════════ */
-function populateMelodySelect(elId, selected) {
-  const sel = document.getElementById(elId);
-  if (!sel) return;
-  const opts = Object.entries(Audio.MELODIES).map(([k, v]) =>
-    `<option value="${k}" ${k === selected ? 'selected' : ''}>${v.icon} ${v.name}</option>`
-  );
-  State.customMelodies.forEach(c => {
-    opts.push(`<option value="${c.name}" ${c.name === selected ? 'selected' : ''}>🎵 ${c.name}</option>`);
-  });
-  sel.innerHTML = opts.join('');
+#sleepRatingPrompt {
+  display: none;
+  position: fixed; inset: 0; z-index: 850;
+  background: rgba(0,0,0,0.75);
+  backdrop-filter: blur(8px);
+  align-items: center; justify-content: center;
+  padding: 24px;
 }
+#sleepRatingPrompt.visible { display: flex; }
+.sleep-prompt-card {
+  background: var(--bg2); border-radius: var(--radius);
+  padding: 28px 24px; width: 100%; max-width: 360px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  animation: scaleIn 0.3s cubic-bezier(0.34,1.56,0.64,1);
+}
+@keyframes scaleIn { from { transform: scale(0.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
-function renderMelodies() {
-  const grid = document.getElementById('melodyGrid');
-  if (!grid) return;
-  const builtIn = Object.entries(Audio.MELODIES).map(([k, v]) =>
-    `<div class="melody-item ${State.selectedMelody===k?'selected':''}" onclick="selectMelody('${k}')">
-      <div class="melody-icon">${v.icon}</div>
-      <div class="melody-name">${v.name}</div>
-    </div>`
-  );
-  const custom = State.customMelodies.map(c =>
-    `<div class="melody-item ${State.selectedMelody===c.name?'selected':''}" onclick="selectMelody('${c.name}')">
-      <div class="melody-icon">🎵</div>
-      <div class="melody-name">${escHtml(c.name)}</div>
-    </div>`
-  );
-  grid.innerHTML = [...builtIn, ...custom].join('');
-}
-
-function selectMelody(id) {
-  State.selectedMelody = id;
-  Store.save();
-  renderMelodies();
-  // Preview
-  Audio.resume();
-  const custom = State.customMelodies.find(c => c.name === id);
-  if (custom) Audio.playCustom(custom.dataUrl, State.volume);
-  else Audio.playMelody(id, State.volume);
-  setTimeout(() => Audio.stop(), 3000);
-}
-
-function handleMelodyUpload(file) {
-  if (!file || !file.type.startsWith('audio/')) { showToast('Только аудио файлы', 'error'); return; }
-  const reader = new FileReader();
-  reader.onload = e => {
-    const name = file.name.replace(/\.[^/.]+$/, '');
-    State.customMelodies.push({ name, dataUrl: e.target.result });
-    State.selectedMelody = name;
-    Store.save(); renderMelodies();
-    showToast('🎵 Мелодия добавлена', 'success');
-  };
-  reader.readAsDataURL(file);
-}
+.sleep-prompt-title { font-size: 20px; font-weight: 800; text-align: center; margin-bottom: 6px; }
+.sleep-prompt-sub { font-size: 13px; color: var(--text2); text-align: center; margin-bottom: 20px; }
 
 /* ══════════════════════════════
-   WEATHER UI
+   MISC UTILS
 ══════════════════════════════ */
-async function loadWeatherUI() {
-  const data = await Weather.fetch();
-  // Mini card on home
-  const mini = document.getElementById('weatherMiniTemp');
-  const miniIcon = document.getElementById('weatherMiniIcon');
-  const miniDesc = document.getElementById('weatherMiniDesc');
-  if (mini) mini.textContent = `${data.temp}°`;
-  if (miniIcon) miniIcon.textContent = data.icon;
-  if (miniDesc) miniDesc.textContent = data.desc;
+.flex-row { display: flex; align-items: center; gap: 10px; }
+.flex-between { display: flex; align-items: center; justify-content: space-between; }
+.mt-8 { margin-top: 8px; }
+.mt-12 { margin-top: 12px; }
+.mt-16 { margin-top: 16px; }
+.text-sm { font-size: 13px; }
+.text-xs { font-size: 11px; }
+.text-muted { color: var(--text2); }
+.text-accent { color: var(--accent); }
+.divider { height: 1px; background: var(--border); margin: 14px 0; }
 
-  // Full weather page
-  const fullTemp = document.getElementById('weatherFullTemp');
-  if (fullTemp) fullTemp.textContent = `${data.temp}°C`;
-  document.getElementById('weatherFullIcon').textContent = data.icon;
-  document.getElementById('weatherFullDesc').textContent = data.desc;
-  document.getElementById('weatherHumidity').textContent = `${data.humidity}%`;
-  document.getElementById('weatherWind').textContent = `${data.wind} м/с`;
-  document.getElementById('weatherPressure').textContent = `${data.pressure} мм`;
-  document.getElementById('weatherAdvice').textContent = Weather.advice(data);
+.badge {
+  display: inline-block; padding: 3px 10px; border-radius: 20px;
+  font-size: 11px; font-weight: 700;
+}
+.badge-purple { background: rgba(155,93,229,0.2); color: var(--accent); }
+.badge-pink { background: rgba(241,91,181,0.2); color: var(--accent2); }
+.badge-green { background: rgba(6,214,160,0.2); color: var(--green); }
+
+.empty-state {
+  text-align: center; padding: 40px 20px;
+  color: var(--text3); font-size: 14px;
+}
+.empty-state .empty-icon { font-size: 48px; margin-bottom: 12px; display: block; }
+
+/* Notification toast */
+.toast-container { position: fixed; top: 80px; right: 16px; z-index: 500; display: flex; flex-direction: column; gap: 8px; }
+.toast {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px 16px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  font-size: 13px; font-weight: 600;
+  animation: toastIn 0.3s ease; max-width: 260px;
+  display: flex; align-items: center; gap: 8px;
+}
+.toast.success { border-left: 3px solid var(--green); }
+.toast.error { border-left: 3px solid var(--red); }
+.toast.info { border-left: 3px solid var(--accent); }
+@keyframes toastIn { from { transform: translateX(100%); opacity: 0; } to { transform: none; opacity: 1; } }
+
+/* Select */
+select.input-nm { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%239b5de5' stroke-width='2' fill='none'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px; cursor: pointer; }
+
+/* PWA install bar */
+#installBar {
+  position: fixed; bottom: 80px; left: 0; right: 0; z-index: 80;
+  padding: 10px 16px;
+  background: linear-gradient(90deg, rgba(155,93,229,0.95), rgba(241,91,181,0.95));
+  display: none; align-items: center; gap: 10px;
+  backdrop-filter: blur(10px);
+}
+#installBar.visible { display: flex; }
+.install-text { flex: 1; font-size: 13px; font-weight: 700; color: white; }
+.install-btn { padding: 7px 16px; background: white; color: var(--accent); border: none; border-radius: 20px; font-family: var(--font); font-weight: 800; font-size: 12px; cursor: pointer; }
+.install-dismiss { background: none; border: none; color: rgba(255,255,255,0.7); cursor: pointer; font-size: 16px; }
+
+/* Volume control */
+.volume-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.volume-row input[type=range] {
+  flex: 1; -webkit-appearance: none; height: 6px;
+  background: var(--surface2); border-radius: 3px;
+  box-shadow: var(--nm-in); outline: none;
+}
+.volume-row input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  box-shadow: 0 2px 8px rgba(155,93,229,0.5); cursor: pointer;
 }
 
-/* ══════════════════════════════
-   QUOTES UI
-   FIX: index.html has quoteText/quoteAuthor on
-   both home page AND quotes page — duplicate IDs.
-   getElementById only finds the first one, so the
-   second stays empty forever ("infinite loading").
-   Solution: use querySelectorAll('[id=...]') to update
-   every element with that ID in one shot.
-══════════════════════════════ */
-function setAllById(id, text) {
-  document.querySelectorAll(`[id="${id}"]`).forEach(el => { el.textContent = text; });
+/* Scrollable day notes */
+.scroll-x { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
+.scroll-x::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
-
-function renderQuote() {
-  const quotes = getAllQuotes();
-  if (!quotes.length) return;
-  const q = quotes[Math.floor(Math.random() * quotes.length)];
-  setAllById('quoteText',     q.text);
-  setAllById('quoteAuthor',   '— ' + q.author);
-  setAllById('quoteCategory', State.quoteCategory === 'all' ? '✨ Все категории' : State.quoteCategory);
-}
-
-function setQuoteCategory(cat) {
-  State.quoteCategory = cat;
-  Store.save();
-  document.querySelectorAll('.cat-btn[data-cat]').forEach(b => b.classList.toggle('active', b.dataset.cat === cat));
-  renderQuote();
-}
-
-/* ══════════════════════════════
-   DRUM PICKER (Timer)
-══════════════════════════════ */
-class DrumPicker {
-  constructor(el, max, value = 0, onChange) {
-    this.el = el;
-    this.max = max;
-    this.value = value;
-    this.onChange = onChange;
-    this.dragging = false;
-    this.startY = 0;
-    this.startVal = 0;
-    this.init();
-  }
-
-  init() {
-    this.render();
-    this.el.addEventListener('touchstart', e => this.onDown(e.touches[0].clientY), { passive: true });
-    this.el.addEventListener('touchmove', e => { e.preventDefault(); this.onMove(e.touches[0].clientY); }, { passive: false });
-    this.el.addEventListener('touchend', () => this.onUp());
-    this.el.addEventListener('mousedown', e => this.onDown(e.clientY));
-    window.addEventListener('mousemove', e => { if (this.dragging) this.onMove(e.clientY); });
-    window.addEventListener('mouseup', () => { if (this.dragging) this.onUp(); });
-    this.el.addEventListener('wheel', e => {
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? 1 : -1;
-      this.setValue((this.value + delta + this.max) % this.max);
-    }, { passive: false });
-  }
-
-  onDown(y) { this.dragging = true; this.startY = y; this.startVal = this.value; }
-  onMove(y) {
-    if (!this.dragging) return;
-    const dy = this.startY - y;
-    const delta = Math.round(dy / 30);
-    this.setValue((this.startVal + delta + this.max * 100) % this.max);
-  }
-  onUp() { this.dragging = false; }
-
-  setValue(v) {
-    this.value = ((v % this.max) + this.max) % this.max;
-    this.render();
-    this.onChange?.(this.value);
-  }
-
-  render() {
-    const items = [];
-    for (let i = -2; i <= 2; i++) {
-      const v = ((this.value + i) % this.max + this.max) % this.max;
-      const cls = i === 0 ? 'selected' : Math.abs(i) === 1 ? 'near' : '';
-      items.push(`<div class="drum-item ${cls}" style="transform:scale(${1 - Math.abs(i)*0.12})">${pad(v)}</div>`);
-    }
-    this.el.querySelector('.drum-list').innerHTML = items.join('');
-  }
-}
-
-let drums = {};
-
-function initDrums() {
-  drums.h = new DrumPicker(
-    document.getElementById('drumH'), 24, State.timerDrums.h,
-    v => { State.timerDrums.h = v; updateTimerDisplay(); }
-  );
-  drums.m = new DrumPicker(
-    document.getElementById('drumM'), 60, State.timerDrums.m,
-    v => { State.timerDrums.m = v; updateTimerDisplay(); }
-  );
-  drums.s = new DrumPicker(
-    document.getElementById('drumS'), 60, State.timerDrums.s,
-    v => { State.timerDrums.s = v; updateTimerDisplay(); }
-  );
-}
-
-function updateTimerDisplay() {
-  const total = State.timerDrums.h * 3600 + State.timerDrums.m * 60 + State.timerDrums.s;
-  const el = document.getElementById('timerDisplay');
-  if (el) el.textContent = fmtTimer(total);
-}
-
-/* ══════════════════════════════
-   TIMER
-══════════════════════════════ */
-function startTimer() {
-  if (State.timerRunning) return;
-  const total = State.timerDrums.h * 3600 + State.timerDrums.m * 60 + State.timerDrums.s;
-  if (!total) { showToast('Установите время', 'error'); return; }
-  State.timerRunning = true;
-  State.timerEnd = Date.now() + total * 1000;
-  document.getElementById('timerStartBtn').style.display = 'none';
-  document.getElementById('timerPauseBtn').style.display = 'flex';
-  document.getElementById('drumSection').style.display = 'none';
-  document.getElementById('timerDisplay').style.display = 'block';
-  State.timerInterval = setInterval(tickTimer, 250);
-  tickTimer();
-}
-
-function tickTimer() {
-  const rem = Math.max(0, Math.ceil((State.timerEnd - Date.now()) / 1000));
-  const el = document.getElementById('timerDisplay');
-  if (el) el.textContent = fmtTimer(rem);
-  if (rem <= 0) { timerDone(); }
-}
-
-function pauseTimer() {
-  clearInterval(State.timerInterval);
-  State.timerRunning = false;
-  document.getElementById('timerStartBtn').style.display = 'flex';
-  document.getElementById('timerPauseBtn').style.display = 'none';
-}
-
-function resetTimer() {
-  clearInterval(State.timerInterval);
-  State.timerRunning = false;
-  State.timerEnd = null;
-  document.getElementById('timerStartBtn').style.display = 'flex';
-  document.getElementById('timerPauseBtn').style.display = 'none';
-  document.getElementById('drumSection').style.display = 'flex';
-  document.getElementById('timerDisplay').style.display = 'none';
-  updateTimerDisplay();
-}
-
-function timerDone() {
-  clearInterval(State.timerInterval);
-  State.timerRunning = false;
-  State.timerEnd = null;
-  if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
-  Audio.resume();
-  Audio.playMelody('chime', State.volume);
-  setTimeout(() => Audio.stop(), 4000);
-  showToast('⏰ Время вышло!', 'success');
-  // FIX: resetTimer was not restoring drum section when timer expired naturally
-  resetTimer();
-}
-
-/* ══════════════════════════════
-   STOPWATCH
-══════════════════════════════ */
-function startStopwatch() {
-  if (State.stopwatchRunning) return;
-  State.stopwatchRunning = true;
-  State.stopwatchStart = Date.now();
-  document.getElementById('swStartBtn').style.display = 'none';
-  document.getElementById('swPauseBtn').style.display = 'flex';
-  State.stopwatchInterval = setInterval(tickSw, 33);
-}
-
-function pauseStopwatch() {
-  State.stopwatchOffset += Date.now() - State.stopwatchStart;
-  clearInterval(State.stopwatchInterval);
-  State.stopwatchRunning = false;
-  document.getElementById('swStartBtn').style.display = 'flex';
-  document.getElementById('swPauseBtn').style.display = 'none';
-}
-
-function resetStopwatch() {
-  clearInterval(State.stopwatchInterval);
-  State.stopwatchRunning = false;
-  State.stopwatchOffset = 0;
-  State.stopwatchStart = null;
-  State.laps = [];
-  document.getElementById('swDisplay').textContent = '00:00.00';
-  document.getElementById('swStartBtn').style.display = 'flex';
-  document.getElementById('swPauseBtn').style.display = 'none';
-  document.getElementById('lapList').innerHTML = '';
-}
-
-function lapStopwatch() {
-  const el = document.getElementById('swDisplay');
-  const txt = el.textContent;
-  const elapsed = State.stopwatchOffset + (State.stopwatchRunning ? Date.now() - State.stopwatchStart : 0);
-  const prev = State.laps.length ? State.laps[State.laps.length-1].total : 0;
-  State.laps.push({ n: State.laps.length + 1, time: txt, split: fmt(elapsed - prev), total: elapsed });
-  renderLaps();
-  Audio.playBeep(880, 0.08);
-}
-
-function tickSw() {
-  const elapsed = State.stopwatchOffset + Date.now() - State.stopwatchStart;
-  document.getElementById('swDisplay').textContent = fmt(elapsed);
-}
-
-function renderLaps() {
-  const list = document.getElementById('lapList');
-  if (!list) return;
-  const times = State.laps.map(l => l.total);
-  const fastest = Math.min(...times);
-  const slowest = Math.max(...times);
-  list.innerHTML = [...State.laps].reverse().map(l => {
-    const cls = l.laps > 1 ? (l.total === fastest ? 'lap-best' : l.total === slowest ? 'lap-worst' : '') : '';
-    return `<div class="lap-item">
-      <span class="lap-num">Круг ${l.n}</span>
-      <span>${l.split}</span>
-      <span class="${cls}">${l.time}</span>
-    </div>`;
-  }).join('');
-}
-
-/* ══════════════════════════════
-   MODAL HELPERS
-══════════════════════════════ */
-function openModal(id) {
-  document.getElementById(id).classList.add('open');
-}
-function closeModal(id) {
-  document.getElementById(id).classList.remove('open');
-}
-
-/* ══════════════════════════════
-   TOAST
-══════════════════════════════ */
-function showToast(msg, type = 'info', dur = 3000) {
-  const container = document.getElementById('toastContainer');
-  const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  toast.textContent = msg;
-  container.appendChild(toast);
-  setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateX(100%)'; toast.style.transition = '0.3s ease'; setTimeout(() => toast.remove(), 300); }, dur);
-}
-
-/* ══════════════════════════════
-   NAVIGATION
-══════════════════════════════ */
-function navigate(pageId) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  const page = document.getElementById(pageId);
-  if (page) page.classList.add('active');
-  const navBtn = document.querySelector(`.nav-item[data-page="${pageId}"]`);
-  if (navBtn) navBtn.classList.add('active');
-  // Page-specific refresh
-  if (pageId === 'pageWeather') loadWeatherUI();
-  if (pageId === 'pageQuotes') renderQuote();
-  if (pageId === 'pageSleep') renderSleepChart();
-  if (pageId === 'pageMelody') renderMelodies();
-}
-
-/* ══════════════════════════════
-   PWA INSTALL
-══════════════════════════════ */
-let deferredPrompt = null;
-window.addEventListener('beforeinstallprompt', e => {
-  e.preventDefault();
-  deferredPrompt = e;
-  document.getElementById('installBar').classList.add('visible');
-});
-
-function installPWA() {
-  if (!deferredPrompt) return;
-  deferredPrompt.prompt();
-  deferredPrompt.userChoice.then(r => {
-    if (r.outcome === 'accepted') showToast('✅ Приложение установлено!', 'success');
-    document.getElementById('installBar').classList.remove('visible');
-    deferredPrompt = null;
-  });
-}
-
-/* ══════════════════════════════
-   SERVICE WORKER
-══════════════════════════════ */
-function registerSW() {
-  if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.register('./service-worker.js').then(async reg => {
-    console.log('SW registered:', reg.scope);
-
-    // FIX #1a: Periodic Background Sync — fires SW every ~1 min even with screen off
-    if ('periodicSync' in reg) {
-      try {
-        const status = await navigator.permissions.query({ name: 'periodic-background-sync' });
-        if (status.state === 'granted') {
-          await reg.periodicSync.register('ailarm-check', { minInterval: 60 * 1000 });
-          console.log('Periodic Background Sync registered');
-        }
-      } catch(e) { console.log('PBS not available:', e.message); }
-    }
-
-    // FIX #1b: fallback one-shot Background Sync when SW activates
-    if ('sync' in reg) {
-      try { await reg.sync.register('ailarm-check'); } catch(e) {}
-    }
-
-  }).catch(e => console.log('SW error:', e));
-
-  // FIX #1c: listen for messages from SW (alarm fired in background)
-  navigator.serviceWorker.addEventListener('message', event => {
-    const { type, alarmId } = event.data || {};
-    if (type === 'TRIGGER_ALARM') {
-      const alarm = State.alarms.find(a => a.id === alarmId);
-      if (alarm && !State.currentAlarmId) triggerAlarm(alarm);
-    }
-    if (type === 'STOP_ALARM') {
-      if (State.currentAlarmId) stopAlarm(true);
-    }
-    if (type === 'SNOOZE_ALARM') {
-      if (State.currentAlarmId) snoozeAlarm();
-    }
-  });
-
-  // FIX #1d: check for pending stop/snooze actions stored by SW while app was closed
-  IDB.get('pending_stop').then(alarmId => {
-    if (!alarmId) return;
-    IDB.set('pending_stop', null);
-    // Just clear — alarm already shown by notification
-  }).catch(() => {});
-
-  IDB.get('pending_snooze').then(data => {
-    if (!data) return;
-    IDB.set('pending_snooze', null);
-    if (data.until > Date.now()) {
-      const delay = data.until - Date.now();
-      const alarm = State.alarms.find(a => a.id === data.alarmId);
-      if (alarm) {
-        State.snoozeTimeout = setTimeout(() => triggerAlarm(alarm), delay);
-        showToast(`💤 Будильник отложен на ${Math.ceil(delay/60000)} мин`, 'info');
-      }
-    }
-  }).catch(() => {});
-}
-
-/* ══════════════════════════════
-   INIT
-══════════════════════════════ */
-document.addEventListener('DOMContentLoaded', () => {
-  Store.load();
-  initTheme();
-  startClock();
-  registerSW();
-
-  // FIX #4: Unlock AudioContext on the very first user interaction.
-  // This satisfies the browser autoplay policy on iOS Safari and Android Chrome
-  // so the alarm sound plays without requiring an extra tap.
-  const unlockOnce = () => {
-    Audio.unlock();
-    document.removeEventListener('click',      unlockOnce);
-    document.removeEventListener('touchstart', unlockOnce);
-    document.removeEventListener('keydown',    unlockOnce);
-  };
-  document.addEventListener('click',      unlockOnce, { once: true, passive: true });
-  document.addEventListener('touchstart', unlockOnce, { once: true, passive: true });
-  document.addEventListener('keydown',    unlockOnce, { once: true });
-  renderAlarms();
-  renderTasks();
-  renderSleepChart();
-  renderQuote();  // FIX: was called via setTimeout(100) in inline script, often losing the race
-
-  // Load weather in background
-  loadWeatherUI().catch(() => {});
-
-  // Volume slider — wire up ALL volume sliders (duplicated on timer + melody pages)
-  document.querySelectorAll('[id="volumeSlider"]').forEach(slider => {
-    slider.value = State.volume;
-    slider.addEventListener('input', e => {
-      State.volume = parseFloat(e.target.value);
-      // Sync the other slider too
-      document.querySelectorAll('[id="volumeSlider"]').forEach(s => { s.value = State.volume; });
-      Audio.setVolume(State.volume);
-      // Update label
-      const pct = Math.round(State.volume * 100);
-      document.querySelectorAll('[id="volLabel"]').forEach(el => { el.textContent = pct + '%'; });
-      Store.save();
-    });
-  });
-  // Set initial label
-  document.querySelectorAll('[id="volLabel"]').forEach(el => { el.textContent = Math.round(State.volume * 100) + '%'; });
-
-  // Navigation
-  document.querySelectorAll('.nav-item[data-page]').forEach(btn => {
-    btn.addEventListener('click', () => navigate(btn.dataset.page));
-  });
-  navigate('pageHome');
-
-  // Timer drums
-  initDrums();
-  updateTimerDisplay();
-
-  // Drum display toggle
-  document.getElementById('timerDisplay').style.display = 'none';
-
-  // Timer tab / stopwatch tab
-  document.getElementById('tabTimer').addEventListener('click', () => {
-    document.getElementById('tabTimer').classList.add('active');
-    document.getElementById('tabStopwatch').classList.remove('active');
-    document.getElementById('timerSection').style.display = 'block';
-    document.getElementById('stopwatchSection').style.display = 'none';
-  });
-  document.getElementById('tabStopwatch').addEventListener('click', () => {
-    document.getElementById('tabStopwatch').classList.add('active');
-    document.getElementById('tabTimer').classList.remove('active');
-    document.getElementById('timerSection').style.display = 'none';
-    document.getElementById('stopwatchSection').style.display = 'block';
-  });
-
-  // Timer controls
-  document.getElementById('timerStartBtn').addEventListener('click', () => { Audio.resume(); startTimer(); });
-  document.getElementById('timerPauseBtn').addEventListener('click', pauseTimer);
-  document.getElementById('timerResetBtn').addEventListener('click', resetTimer);
-
-  // Stopwatch controls
-  document.getElementById('swStartBtn').addEventListener('click', () => { Audio.resume(); startStopwatch(); });
-  document.getElementById('swPauseBtn').addEventListener('click', pauseStopwatch);
-  document.getElementById('swResetBtn').addEventListener('click', resetStopwatch);
-  document.getElementById('swLapBtn').addEventListener('click', lapStopwatch);
-
-  // Task add
-  const taskInput = document.getElementById('taskInput');
-  const taskAddBtn = document.getElementById('taskAddBtn');
-  const taskBdayCheck = document.getElementById('taskBdayCheck');
-  taskAddBtn.addEventListener('click', () => {
-    addTask(taskInput.value, taskBdayCheck?.checked || false);
-    taskInput.value = '';
-    if (taskBdayCheck) taskBdayCheck.checked = false;
-  });
-  taskInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') taskAddBtn.click();
-  });
-
-  // Alarm FAB
-  document.getElementById('alarmFab').addEventListener('click', () => { Audio.resume(); openAlarmModal(); });
-  // Alarm save
-  document.getElementById('alarmSaveBtn').addEventListener('click', saveAlarm);
-  // Alarm delete
-  document.getElementById('alarmDeleteBtn').addEventListener('click', deleteAlarm);
-  // Day buttons in modal
-  document.querySelectorAll('.day-btn[data-day]').forEach(btn => {
-    btn.addEventListener('click', () => btn.classList.toggle('selected'));
-  });
-  // Type buttons
-  document.querySelectorAll('.type-btn[data-type]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.type-btn[data-type]').forEach(b => b.classList.remove('selected'));
-      btn.classList.add('selected');
-    });
-  });
-
-  // Modal close on overlay click
-  document.querySelectorAll('.modal-overlay').forEach(overlay => {
-    overlay.addEventListener('click', e => {
-      if (e.target === overlay) overlay.classList.remove('open');
-    });
-  });
-
-  // Alarm ring controls
-  document.getElementById('ringStopBtn').addEventListener('click', () => stopAlarm(true));
-  document.getElementById('ringSnoozeBtn').addEventListener('click', snoozeAlarm);
-
-  // Assistant close
-  document.getElementById('assistantCloseBtn').addEventListener('click', closeAssistant);
-
-  // Sleep rating
-  document.querySelectorAll('#sleepPromptStars .star-btn').forEach((btn, i) => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('#sleepPromptStars .star-btn').forEach((s, j) => {
-        s.classList.toggle('lit', j <= i);
-      });
-      setTimeout(() => submitSleepRating(i + 1), 400);
-    });
-    btn.addEventListener('mouseenter', () => {
-      document.querySelectorAll('#sleepPromptStars .star-btn').forEach((s, j) => {
-        s.classList.toggle('lit', j <= i);
-      });
-    });
-  });
-  document.getElementById('sleepPromptStars').addEventListener('mouseleave', () => {
-    document.querySelectorAll('#sleepPromptStars .star-btn').forEach(s => {
-      const current = parseInt(document.getElementById('sleepRatingPrompt')._current || 0);
-      // Reset to saved
-    });
-  });
-  document.getElementById('sleepSkipBtn').addEventListener('click', () => {
-    document.getElementById('sleepRatingPrompt').classList.remove('visible');
-    document.getElementById('sleepRatingPrompt')._callback?.();
-  });
-
-  // Sleep stars on sleep page
-  document.querySelectorAll('#sleepPageStars .star-btn').forEach((btn, i) => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('#sleepPageStars .star-btn').forEach((s,j) => s.classList.toggle('lit', j<=i));
-      submitSleepRating(i+1);
-    });
-    btn.addEventListener('mouseenter', () => {
-      document.querySelectorAll('#sleepPageStars .star-btn').forEach((s,j) => s.classList.toggle('lit', j<=i));
-    });
-  });
-
-  // Quotes category
-  document.querySelectorAll('.cat-btn[data-cat]').forEach(btn => {
-    btn.addEventListener('click', () => setQuoteCategory(btn.dataset.cat));
-    btn.classList.toggle('active', btn.dataset.cat === State.quoteCategory);
-  });
-  document.getElementById('nextQuoteBtn').addEventListener('click', renderQuote);
-
-  // Theme toggle
-  document.getElementById('themeToggleBtn').addEventListener('click', () => {
-    const themes = ['auto', 'dark', 'light'];
-    const idx = themes.indexOf(State.theme);
-    State.theme = themes[(idx + 1) % themes.length];
-    applyTheme(State.theme);
-    Store.save();
-    const icons = { auto: '🌓', dark: '🌙', light: '☀️' };
-    document.getElementById('themeToggleBtn').textContent = icons[State.theme];
-  });
-
-  // Melody upload
-  document.getElementById('melodyUploadInput').addEventListener('change', e => {
-    if (e.target.files[0]) handleMelodyUpload(e.target.files[0]);
-  });
-  document.getElementById('melodyUploadBtn').addEventListener('click', () => {
-    document.getElementById('melodyUploadInput').click();
-  });
-
-  // Weather refresh
-  document.getElementById('weatherRefreshBtn').addEventListener('click', () => {
-    State.weatherLastFetch = 0;
-    loadWeatherUI().then(() => showToast('🌤 Погода обновлена', 'success'));
-  });
-
-  // PWA install
-  document.getElementById('installPwaBtn').addEventListener('click', installPWA);
-  document.getElementById('installDismissBtn').addEventListener('click', () => {
-    document.getElementById('installBar').classList.remove('visible');
-  });
-
-  // iOS standalone check
-  if (window.navigator.standalone) {
-    document.getElementById('installBar').classList.remove('visible');
-  }
-
-  // Wake lock (prevent screen off)
-  if ('wakeLock' in navigator) {
-    document.addEventListener('visibilitychange', async () => {
-      if (document.visibilityState === 'visible' && State.currentAlarmId) {
-        try { await navigator.wakeLock.request('screen'); } catch(e){}
-      }
-    });
-  }
-
-  console.log('🚀 Ailarm ready!');
-});
