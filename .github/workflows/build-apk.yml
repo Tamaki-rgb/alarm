@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,7 +19,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -26,21 +29,32 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '11076708'
+        continue-on-error: true
+
+      - name: Install Android build tools manually
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "build-tools;34.0.0" "platforms;android-34" || true
 
       - name: Install Bubblewrap
         run: npm install -g @bubblewrap/cli
 
-      - name: Init TWA
-        run: |
-          bubblewrap init \
-            --manifest https://Tamaki-rgb.github.io/ailarm/manifest.json \
-            --directory ./twa-build
-        continue-on-error: true
-
-      - name: Copy twa-manifest if needed
+      - name: Init TWA project
         run: |
           mkdir -p ./twa-build
+          bubblewrap init \
+            --manifest https://Tamaki-rgb.github.io/ailarm/manifest.json \
+            --directory ./twa-build \
+            --skipPwaValidation
+        timeout-minutes: 5
+        continue-on-error: true
+
+      - name: Copy twa-manifest fallback
+        run: |
           if [ ! -f ./twa-build/twa-manifest.json ]; then
+            echo "Init failed, copying twa-manifest.json manually"
             cp twa-manifest.json ./twa-build/twa-manifest.json
           fi
 
@@ -54,19 +68,22 @@ jobs:
             -validity 10000 \
             -storepass ailarm123 \
             -keypass ailarm123 \
-            -dname "CN=Ailarm, OU=App, O=Ailarm, L=City, S=State, C=US"
+            -dname "CN=Ailarm, OU=App, O=Ailarm, L=City, S=State, C=US" \
+            -noprompt
 
       - name: Build APK
         working-directory: ./twa-build
         run: |
-          bubblewrap build \
-            --skipPwaValidation
+          bubblewrap build --skipPwaValidation
+        timeout-minutes: 15
 
-      - name: Locate APK
+      - name: Find and copy APK
         run: |
-          find . -name "*.apk" -exec cp {} ./ailarm.apk \;
+          APK=$(find . -name "*.apk" | head -1)
+          echo "Found APK: $APK"
+          cp "$APK" ./ailarm.apk
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: ailarm-apk
@@ -74,15 +91,11 @@ jobs:
           retention-days: 30
 
       - name: Create Release
-        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
           name: Ailarm v1.0.${{ github.run_number }}
-          body: |
-            Ailarm — умный будильник. Скачай ailarm.apk и установи на Android.
+          body: Ailarm — умный будильник. Установи ailarm.apk на Android.
           files: ailarm.apk
-          draft: false
-          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
